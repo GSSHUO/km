@@ -100,14 +100,14 @@ fn decrypt_safe_storage(blob: &[u8]) -> Result<String> {
 
 #[cfg(target_os = "windows")]
 fn decrypt_safe_storage(blob: &[u8]) -> Result<String> {
-    use windows_sys::Win32::Security::Cryptography::{CryptUnprotectData, CRYPTOAPI_BLOB};
+    use windows_sys::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
     let cipher = if blob.starts_with(b"v10") { &blob[3..] } else { blob };
-    let mut input = CRYPTOAPI_BLOB {
+    let mut input = CRYPT_INTEGER_BLOB {
         cbData: cipher.len() as u32,
         pbData: cipher.as_ptr() as *mut u8,
     };
-    let mut output = CRYPTOAPI_BLOB {
+    let mut output = CRYPT_INTEGER_BLOB {
         cbData: 0,
         pbData: std::ptr::null_mut(),
     };
@@ -127,7 +127,7 @@ fn decrypt_safe_storage(blob: &[u8]) -> Result<String> {
     }
     let data = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
-        windows_sys::Win32::System::Memory::LocalFree(output.pbData as _);
+        windows_sys::Win32::Foundation::LocalFree(output.pbData as _);
     }
     Ok(String::from_utf8(data)?)
 }
