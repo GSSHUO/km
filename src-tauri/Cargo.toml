@@ -1,0 +1,39 @@
+[package]
+name = "kimi-quota-bar"
+version = "0.1.0"
+description = "Menu-bar card showing Kimi subscription quota usage"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2.12", features = ["json"] }
+base64 = "0.22"
+aes = "0.8"
+cbc = "0.1"
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+dirs = "6"
+window-vibrancy = "0.6"
+tauri-plugin-liquid-glass = "0.1"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+    "Win32_System_Memory",
+] }
+
+[profile.release]
+opt-level = 3
+strip = true

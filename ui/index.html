@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="brand">
+        <span class="dot" id="statusDot"></span>
+        <span class="title">Kimi 额度</span>
+      </div>
+      <div class="header-right">
+        <span class="updated" id="updatedAt">--</span>
+        <button class="icon-btn" id="refreshBtn" title="立即刷新">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="rows" id="rows">
+      <div class="row">
+        <div class="ring"><svg viewBox="0 0 48 48">
+          <circle class="track" cx="24" cy="24" r="20"/>
+          <circle class="bar" id="ring-total" cx="24" cy="24" r="20"/>
+        </svg><span class="pct" id="pct-total">–</span></div>
+        <div class="meta">
+          <div class="label">总量 · 月度额度</div>
+          <div class="sub" id="reset-total">--</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="ring"><svg viewBox="0 0 48 48">
+          <circle class="track" cx="24" cy="24" r="20"/>
+          <circle class="bar" id="ring-5h" cx="24" cy="24" r="20"/>
+        </svg><span class="pct" id="pct-5h">–</span></div>
+        <div class="meta">
+          <div class="label">5 小时窗口</div>
+          <div class="sub" id="reset-5h">--</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="ring"><svg viewBox="0 0 48 48">
+          <circle class="track" cx="24" cy="24" r="20"/>
+          <circle class="bar" id="ring-7d" cx="24" cy="24" r="20"/>
+        </svg><span class="pct" id="pct-7d">–</span></div>
+        <div class="meta">
+          <div class="label">7 天窗口</div>
+          <div class="sub" id="reset-7d">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="error hidden" id="errorBox">
+      <div class="error-msg" id="errorMsg">加载失败</div>
+      <button class="retry" id="retryBtn">重试</button>
+    </div>
+
+    <div class="footer" id="footer">每 60 秒自动刷新</div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

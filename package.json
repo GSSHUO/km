@@ -1,0 +1,19 @@
+{
+  "name": "kimi-quota-bar",
+  "version": "0.1.0",
+  "description": "Menu-bar card showing Kimi subscription quota usage",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  },
+  "private": true
+}
