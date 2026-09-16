@@ -82,11 +82,8 @@ fn normalize(raw: &serde_json::Value) -> serde_json::Value {
 }
 
 fn fetch_payload() -> serde_json::Value {
-    match auth::load_access_token() {
-        Ok(token) => match auth::fetch_quota(&token) {
-            Ok(raw) => normalize(&raw),
-            Err(e) => json!({ "ok": false, "error": e.to_string() }),
-        },
+    match auth::fetch_quota_smart() {
+        Ok(raw) => normalize(&raw),
         Err(e) => json!({ "ok": false, "error": e.to_string() }),
     }
 }
@@ -128,6 +125,23 @@ fn toggle_window(app: &AppHandle) {
 
 fn main() {
     env_logger::init();
+
+    // Hidden self-check entry: `--check` prints one quota fetch as JSON and
+    // exits; `--check-refresh` forces a token renewal first. Handy for
+    // verifying the auth chain without launching the UI.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--check" || a == "--check-refresh") {
+        let force = args.iter().any(|a| a == "--check-refresh");
+        let out = match auth::get_valid_access_token(force)
+            .and_then(|t| auth::fetch_quota(&t))
+        {
+            Ok(raw) => normalize(&raw),
+            Err(e) => json!({ "ok": false, "error": e.to_string() }),
+        };
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return;
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_liquid_glass::init())
         .setup(|app| {
