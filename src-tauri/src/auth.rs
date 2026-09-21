@@ -91,7 +91,7 @@ fn oscrypt_decrypt(key: &[u8; 16], blob: &[u8]) -> Result<String> {
     }
     let iv = [0x20u8; 16]; // 16 spaces, per Chromium OSCrypt on macOS
     type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
-    let cipher = Aes128CbcDec::new_from_slice(key).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
+    let cipher = Aes128CbcDec::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
     let mut buf = blob[3..].to_vec();
     let pt = cipher
         .decrypt_padded_mut::<Pkcs7>(&mut buf)
@@ -105,7 +105,7 @@ fn oscrypt_encrypt(key: &[u8; 16], plaintext: &str) -> Result<Vec<u8>> {
 
     let iv = [0x20u8; 16];
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
-    let cipher = Aes128CbcEnc::new_from_slice(key).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
+    let cipher = Aes128CbcEnc::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
     let msg = plaintext.as_bytes();
     // cipher is built without `alloc` here, so pad the buffer manually and
     // use encrypt_padded_mut (block-aligned length, Pkcs7 fills the rest).
