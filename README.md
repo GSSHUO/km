@@ -12,20 +12,39 @@
   旧版 macOS 回退 NSVisualEffectView，Windows 用 Acrylic
 - 卡片可拖动，位置自动记忆；点击其他窗口不会关闭卡片；
   全屏应用下自动隐藏（系统原生行为）
-- 用量着色：< 50% 绿 / < 80% 黄 / ≥ 80% 红，附重置倒计时
+- **贴边缩球**：把卡片拖到屏幕右边缘松手，自动吸附缩成一个小球
+  （显示总量百分比圆环）；单击小球或把它拖离边缘即展开回卡片
+- 用量着色：< 50% 绿 / < 80% 黄 / ≥ 80% 红，附重置倒计时，百分比两位小数显示
 - 显示 Kimi Code 用量占比
-- **应用内登录**：微信 / Kimi 手机客户端扫码登录、手机验证码登录、一键退出；
+- **应用内登录**：微信 / Kimi 手机客户端扫码登录、手机验证码登录；
   自有登录会话加密保存在本机并优先于客户端会话（短信发送受服务端人机验证
   限制时，可一键打开内嵌官方登录页完成验证，令牌自动回传）
+- **个人中心**：登录后点击账号图标进入，显示脱敏用户 ID、登录来源、
+  会员计划 / 状态 / 到期时间，底部可退出登录（应用内二次确认弹窗）
+- **退出登录**：退出后卡片停止跟随任何账号（包括桌面客户端会话），
+  显示未登录态；在卡片里重新登录即恢复
 - **自动续期**：Kimi 客户端关闭也不怕——访问令牌过期后应用会自己调官方
   刷新接口换新并写回，最长 90 天免登录
 
 > 小知识：点击卡片时颜色会变深一点——这是 macOS 原生玻璃材质的
 > 「焦点态」反馈（和系统电池菜单、Spotlight 一致），不是 bug。
 
+## v0.1.2 更新
+
+- **个人中心**：登录后点击账号图标进入，展示脱敏用户 ID、登录来源、
+  会员计划 / 等级 / 生效状态 / 到期时间（来自官方 `GetSubscription` 接口）
+- **退出登录二次确认**：退出前弹出应用内确认弹窗（取消 / 确认退出），
+  文案按登录态区分；退出后卡片显示未登录，桌面客户端登录态不受影响
+- **贴边缩球**：卡片拖到屏幕右边缘自动吸附成球，单击或拖离恢复
+- **扫码登录修复**：官方接口响应字段为 camelCase，旧版解析丢令牌导致
+  「扫码成功但面板不跳转」，已修复并增加失败提示
+- **网页登录修复**：内嵌登录窗口改为主线程创建并绕过系统代理，
+  修复白屏、无法关闭
+- 额度百分比改为两位小数显示
+
 ## 数据从哪来（重要）
 
-应用**不包含任何账号信息**，也没有自己的登录界面。它读取的是
+应用**不内置任何账号信息**。默认读取的是
 **本机 Kimi 桌面客户端当前登录账号**的本地会话：
 
 1. 读取 `kimi-desktop/bridge-store/token-store.json`（Chromium OSCrypt 加密）
@@ -41,10 +60,11 @@
 客户端只需在 90 天内登录过一次即可；超过 90 天未登录导致刷新令牌失效时，
 卡片会提示你打开客户端登录一次。
 
-此外也可以**在卡片里直接登录**（点头像图标）：扫码（微信 / Kimi 手机客户端）
+此外也可以**在卡片里直接登录**（点账号图标）：扫码（微信 / Kimi 手机客户端）
 或手机验证码。自有登录会话加密保存在 `kimi-quota-bar/session.json`（Windows
-DPAPI / macOS 钥匙串派生密钥），存在时优先于客户端会话；退出登录只清除这个
-自有会话并回落到跟随客户端，**不会影响 Kimi 客户端的登录态**。
+DPAPI / macOS 钥匙串派生密钥），存在时优先于客户端会话。退出登录会删除自有会话
+并放置退出标记，此后卡片**停止跟随任何账号**、显示未登录态；在卡片里重新登录
+自动清除标记。**整个过程不影响 Kimi 桌面客户端自身的登录态**。
 
 前置条件：本机安装并登录过 Kimi 桌面客户端（不需要它一直运行）；或在应用内登录。
 
@@ -92,7 +112,7 @@ macOS（Apple Silicon / Intel）与 Windows 安装包，产出为草稿发布（
 到 Releases 页面确认后点 Publish 即可：
 
 ```bash
-git tag v0.1.1 && git push origin v0.1.1
+git tag v0.1.2 && git push origin v0.1.2
 ```
 
 也可在 Windows 机器本地打包：装好 Rust 与 VS Build Tools 后执行
@@ -105,7 +125,11 @@ git tag v0.1.1 && git push origin v0.1.1
 ```bash
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-refresh   # 强制轮转一次令牌
-"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-login     # 验证扫码登录链路
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-login     # 创建扫码 ticket + 渲染二维码
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-qr        # 扫码登录全链路（模拟手机确认，不落盘）
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-session   # 自有会话加解密往返
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-profile   # 个人中心数据（会员摘要 + 用户 ID）
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-weblogin  # 真实打开网页登录窗口并报告加载结果
 ```
 
 输出为 JSON；`"ok": true` 即链路正常。
@@ -119,8 +143,8 @@ kimi-quota-bar/
 │   ├── style.css
 │   └── app.js
 ├── src-tauri/
-│   ├── src/main.rs        # 托盘、窗口、毛玻璃、轮询、位置记忆
-│   ├── src/auth.rs        # 令牌存取加解密、自动续期、官方额度接口
+│   ├── src/main.rs        # 托盘、窗口、毛玻璃、轮询、位置记忆、贴边球形态、登录/个人中心命令
+│   ├── src/auth.rs        # 令牌存取加解密、自动续期、官方登录 / 额度 / 会员接口
 │   ├── icons/             # 应用图标 + 菜单栏图标
 │   └── tauri.conf.json
 └── .github/workflows/release.yml
