@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>登录 Kimi 账号</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #16161f;
+      color: rgba(255, 255, 255, 0.92);
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box { text-align: center; padding: 24px; max-width: 320px; }
+    .icon { font-size: 34px; margin-bottom: 12px; }
+    .title { font-size: 15px; font-weight: 700; }
+    .desc { font-size: 12px; opacity: 0.6; line-height: 1.8; margin: 10px 0 20px; }
+    .row { display: flex; gap: 10px; justify-content: center; }
+    button {
+      border: none; border-radius: 8px; padding: 8px 22px;
+      font-size: 12.5px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .retry { background: rgba(139, 92, 246, 0.55); color: #fff; }
+    .retry:hover { background: rgba(139, 92, 246, 0.75); }
+    .close { background: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.85); }
+    .close:hover { background: rgba(255, 255, 255, 0.2); }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">🌐</div>
+    <div class="title">登录页加载失败</div>
+    <div class="desc">
+      kimi.com 页面未能在内嵌浏览器中正常显示。<br />
+      可以点「重试」重新加载；多次失败请检查网络后重试，<br />
+      或改用「扫码登录」。
+    </div>
+    <div class="row">
+      <button class="retry" id="retryBtn">重试</button>
+      <button class="close" id="closeBtn">关闭</button>
+    </div>
+  </div>
+  <script src="weblogin-error.js"></script>
+</body>
+</html>

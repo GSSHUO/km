@@ -3,7 +3,7 @@
 mod auth;
 
 use serde_json::json;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
@@ -242,37 +242,79 @@ fn hide_card(window: tauri::Window) {
 // back into Tauri, so we poll its localStorage with a host-side eval; once
 // tokens appear the script navigates to a fake callback URL which we
 // intercept and cancel — tokens travel only inside this process.
+//
+// Self-healing: a one-shot watchdog probes the page state after 15 s via a
+// fake `__kqb_diag__` navigation (also host-intercepted). Still blank → swap
+// in a LOCAL error page with retry/close buttons; probe unanswered → the
+// renderer is hung, so the window is destroyed and recreated on the error
+// page. The user is never trapped in a white, unclosable window.
 
 const WEB_LOGIN_LABEL: &str = "web-login";
-const WEB_LOGIN_POLL_JS: &str = r#"(function(){try{var at=localStorage.getItem('access_token'),rt=localStorage.getItem('refresh_token');if(at&&rt){var uid=localStorage.getItem('msh_user_id')||'';location.href='https://www.kimi.com/__kqb_login_callback__?at='+encodeURIComponent(at)+'&rt='+encodeURIComponent(rt)+'&uid='+encodeURIComponent(uid);}}catch(e){}})();"#;
+const WEB_LOGIN_HOME: &str = "https://www.kimi.com/";
 
-#[tauri::command]
-fn open_web_login(app: tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
-        let _ = w.show();
-        let _ = w.set_focus();
-        return;
+const WEB_LOGIN_POLL_JS: &str = r#"(function(){try{
+if(!window.__kqbErr){window.__kqbErr=[];window.addEventListener('error',function(e){try{if(window.__kqbErr.length<20)window.__kqbErr.push(String((e&&e.message)||(e&&e.type)||'err'));}catch(_){}});window.addEventListener('unhandledrejection',function(e){try{if(window.__kqbErr.length<20)window.__kqbErr.push('rej:'+String(e&&e.reason));}catch(_){}});}
+var at=localStorage.getItem('access_token'),rt=localStorage.getItem('refresh_token');
+if(at&&rt){var uid=localStorage.getItem('msh_user_id')||'';location.href='https://www.kimi.com/__kqb_login_callback__?at='+encodeURIComponent(at)+'&rt='+encodeURIComponent(rt)+'&uid='+encodeURIComponent(uid);}
+}catch(e){}})();"#;
+
+/// One-shot probe: reports readyState / body size / collected JS errors by
+/// navigating to a fake URL the host intercepts (and cancels).
+const WEB_LOGIN_DIAG_JS: &str = r#"(function(){try{
+var bl=document.body?document.body.innerHTML.length:-1;
+var ch=document.body?document.body.childElementCount:0;
+var q='rs='+encodeURIComponent(document.readyState)+'&bl='+bl+'&ch='+ch+'&t='+encodeURIComponent(document.title||'')+'&err='+encodeURIComponent((window.__kqbErr||[]).slice(0,5).join('|'));
+location.href='https://www.kimi.com/__kqb_diag__?'+q;
+}catch(e){}})();"#;
+
+static WEBLOGIN_DIAG_RECEIVED: AtomicBool = AtomicBool::new(false);
+static WEBLOGIN_DIAG_PRINT: AtomicBool = AtomicBool::new(false);
+/// Generation guard so retried logins never end up with duplicate poll loops.
+static WEBLOGIN_POLL_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn append_diag_log(msg: &str) {
+    let Some(dir) = dirs::config_dir() else { return };
+    let p = dir.join("kimi-quota-bar").join("web-login-diag.log");
+    use std::io::Write;
+    if let Some(parent) = p.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
-    // Building a WebviewWindow off the async command thread can leave
-    // WebView2 uninitialized on Windows (white, unresponsive window) — hop
-    // onto the main event loop first.
-    let dispatcher = app.clone();
-    let _ = dispatcher.run_on_main_thread(move || {
-        let nav_app = app.clone();
-        let poll_app = app.clone();
-        let build_app = app.clone();
-        let builder = tauri::WebviewWindowBuilder::new(
-            &build_app,
-            WEB_LOGIN_LABEL,
-            tauri::WebviewUrl::External("https://www.kimi.com/".parse().unwrap()),
-        )
-        .title("登录 Kimi 账号")
-        .inner_size(420.0, 680.0)
-        .center()
-        .on_navigation(move |url| {
-            if url.path() != "/__kqb_login_callback__" {
-                return true;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+        let _ = writeln!(f, "{msg}");
+    }
+}
+
+/// Handles both fake URLs: `__kqb_login_callback__` (tokens) and
+/// `__kqb_diag__` (page-state probe). Everything else navigates freely.
+fn web_login_nav_handler(app: &AppHandle, url: &tauri::Url) -> bool {
+    match url.path() {
+        "/__kqb_diag__" => {
+            WEBLOGIN_DIAG_RECEIVED.store(true, Ordering::SeqCst);
+            let mut body_len: i64 = -1;
+            for (k, v) in url.query_pairs() {
+                if k == "bl" {
+                    body_len = v.parse().unwrap_or(-1);
+                }
             }
+            let msg = format!("web-login diag: {}", url.query().unwrap_or(""));
+            log::warn!("{msg}");
+            append_diag_log(&msg);
+            if WEBLOGIN_DIAG_PRINT.load(Ordering::SeqCst) {
+                println!("{msg}");
+            }
+            // Page stayed (near-)empty 15 s in → rebuild the window on the
+            // local error page (App URL is scheme-agnostic: http in debug,
+            // https in release).
+            if body_len < 200 {
+                append_diag_log("web-login page blank; switching to error page");
+                if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
+                    let _ = w.close();
+                }
+                build_web_login_window(app, tauri::WebviewUrl::App("weblogin-error.html".into()));
+            }
+            false
+        }
+        "/__kqb_login_callback__" => {
             let mut at = None;
             let mut rt = None;
             let mut uid = String::new();
@@ -294,31 +336,123 @@ fn open_web_login(app: tauri::AppHandle) {
                     log::warn!("网页登录会话保存失败: {e}");
                 }
             }
-            if let Some(w) = nav_app.get_webview_window(WEB_LOGIN_LABEL) {
+            if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
                 let _ = w.close();
             }
-            if let Some(m) = nav_app.get_webview_window("main") {
+            if let Some(m) = app.get_webview_window("main") {
                 let _ = m.eval(
                     "window.__kqbPoll && window.__kqbPoll(); window.__kqbSession && window.__kqbSession()",
                 );
             }
             false
-        });
-        match builder.build() {
-            Ok(_) => {
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_millis(1500));
-                    match poll_app.get_webview_window(WEB_LOGIN_LABEL) {
-                        Some(w) => {
-                            let _ = w.eval(WEB_LOGIN_POLL_JS);
-                        }
-                        None => break,
-                    }
-                });
+        }
+        _ => true,
+    }
+}
+
+fn build_web_login_window(app: &AppHandle, url: tauri::WebviewUrl) {
+    let nav_app = app.clone();
+    let builder = tauri::WebviewWindowBuilder::new(app, WEB_LOGIN_LABEL, url)
+        .title("登录 Kimi 账号")
+        .inner_size(420.0, 680.0)
+        .center()
+        .on_navigation(move |url| web_login_nav_handler(&nav_app, url));
+    if let Err(e) = builder.build() {
+        log::warn!("无法创建网页登录窗口: {e}");
+        append_diag_log(&format!("build failed: {e}"));
+    }
+}
+
+/// Poll the page for tokens every 1.5 s; exits when the window is gone or a
+/// newer poll loop supersedes this one.
+fn start_web_login_poll(app: AppHandle) {
+    let gen = WEBLOGIN_POLL_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(1500));
+        if WEBLOGIN_POLL_GEN.load(Ordering::SeqCst) != gen {
+            break;
+        }
+        match app.get_webview_window(WEB_LOGIN_LABEL) {
+            Some(w) => {
+                let _ = w.eval(WEB_LOGIN_POLL_JS);
             }
-            Err(e) => log::warn!("无法创建网页登录窗口: {e}"),
+            None => break,
         }
     });
+}
+
+/// One-shot blank/hang watchdog (re-armed on every retry).
+fn start_web_login_watchdog(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(15));
+        let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+        // Only probe while the window is still on kimi.com.
+        let on_kimi = w
+            .url()
+            .map(|u| u.host_str() == Some("www.kimi.com"))
+            .unwrap_or(false);
+        if !on_kimi {
+            return;
+        }
+        WEBLOGIN_DIAG_RECEIVED.store(false, Ordering::SeqCst);
+        let _ = w.eval(WEB_LOGIN_DIAG_JS);
+        std::thread::sleep(Duration::from_secs(3));
+        if WEBLOGIN_DIAG_RECEIVED.load(Ordering::SeqCst) {
+            return; // probe answered; the nav handler dealt with any blank page
+        }
+        // Renderer hung — destroy and recreate on the local error page.
+        append_diag_log("web-login diag probe unanswered; recreating window");
+        let app2 = app.clone();
+        let dispatcher = app.clone();
+        let _ = dispatcher.run_on_main_thread(move || {
+            if let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) {
+                let _ = w.close();
+            }
+            build_web_login_window(
+                &app2,
+                tauri::WebviewUrl::App("weblogin-error.html".into()),
+            );
+        });
+    });
+}
+
+#[tauri::command]
+fn open_web_login(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    // Building a WebviewWindow off the async command thread can leave
+    // WebView2 uninitialized on Windows (white, unresponsive window) — hop
+    // onto the main event loop first.
+    let dispatcher = app.clone();
+    let _ = dispatcher.run_on_main_thread(move || {
+        build_web_login_window(
+            &app,
+            tauri::WebviewUrl::External(WEB_LOGIN_HOME.parse().unwrap()),
+        );
+        start_web_login_poll(app.clone());
+        start_web_login_watchdog(app.clone());
+    });
+}
+
+/// Local error page's retry button: reload kimi.com and re-arm poll+watchdog.
+#[tauri::command]
+fn retry_web_login(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
+        let _ = w.eval(&format!("location.replace('{WEB_LOGIN_HOME}')"));
+    }
+    start_web_login_poll(app.clone());
+    start_web_login_watchdog(app);
+}
+
+/// Local error page's close button (in-page, always responsive).
+#[tauri::command]
+fn close_web_login(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
+        let _ = w.close();
+    }
 }
 
 /// Create a QR login ticket and render the QR matrix natively, so the
@@ -531,6 +665,10 @@ fn main() {
     }
 
     let test_weblogin = args.iter().any(|a| a == "--check-weblogin");
+    let test_weblogin_late = args.iter().any(|a| a == "--check-weblogin-late");
+    if test_weblogin || test_weblogin_late {
+        WEBLOGIN_DIAG_PRINT.store(true, Ordering::SeqCst);
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_liquid_glass::init())
@@ -688,20 +826,63 @@ fn main() {
             let _ = window.show();
             let _ = window.set_always_on_top(true);
 
-            // --check-weblogin: open the web-login window for real, then
-            // report where the webview actually navigated — about:blank
-            // would mean the renderer never initialized.
+            // --check-weblogin: open the web-login window for real, let the
+            // 15 s watchdog probe fire (prints page state), then report the
+            // final URL — kimi.com means it rendered; the local error page
+            // means the fallback kicked in.
             if test_weblogin {
                 let app_handle = app.handle().clone();
                 open_web_login(app_handle.clone());
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_secs(12));
+                    std::thread::sleep(Duration::from_secs(25));
                     let url = app_handle
                         .get_webview_window(WEB_LOGIN_LABEL)
                         .and_then(|w| w.url().ok())
                         .map(|u| u.to_string())
                         .unwrap_or_else(|| "window-missing".to_string());
                     println!("{}", json!({ "webLoginUrl": url }));
+                    app_handle.exit(0);
+                });
+            }
+
+            // --check-weblogin-late: same probe, but the window is created
+            // 5 s after startup — replicating the real button-click timing.
+            if test_weblogin_late {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(5));
+                    open_web_login(app_handle.clone());
+                    std::thread::sleep(Duration::from_secs(30));
+                    let url = app_handle
+                        .get_webview_window(WEB_LOGIN_LABEL)
+                        .and_then(|w| w.url().ok())
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|| "window-missing".to_string());
+                    println!("{}", json!({ "webLoginLateUrl": url }));
+                    app_handle.exit(0);
+                });
+            }
+
+            // --check-weblogin-error: open the window directly on the local
+            // error page to verify the fallback asset resolves and renders.
+            if args.iter().any(|a| a == "--check-weblogin-error") {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let app2 = app_handle.clone();
+                    let dispatcher = app_handle.clone();
+                    let _ = dispatcher.run_on_main_thread(move || {
+                        build_web_login_window(
+                            &app2,
+                            tauri::WebviewUrl::App("weblogin-error.html".into()),
+                        );
+                    });
+                    std::thread::sleep(Duration::from_secs(6));
+                    let url = app_handle
+                        .get_webview_window(WEB_LOGIN_LABEL)
+                        .and_then(|w| w.url().ok())
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|| "window-missing".to_string());
+                    println!("{}", json!({ "webLoginErrorUrl": url }));
                     app_handle.exit(0);
                 });
             }
@@ -720,6 +901,8 @@ fn main() {
             logout,
             hide_card,
             open_web_login,
+            retry_web_login,
+            close_web_login,
             expand_card,
             get_profile,
         ])
