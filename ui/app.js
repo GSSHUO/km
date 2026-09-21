@@ -441,11 +441,13 @@ document.querySelector(".card").addEventListener("mousedown", (e) => {
   window.__TAURI__.core.invoke("start_drag");
 });
 
-// --- ball mode (docked to the right screen edge) ---
+// --- ball mode (docked to the screen edge) ---
 
-window.__TAURI__.event.listen("ball-mode", (e) => {
-  document.body.classList.toggle("ball-mode", !!e.payload);
-  if (e.payload) {
+// Native side notifies via BOTH event emit and a direct eval of this
+// function (eval survives the resize storm where events can get dropped).
+window.__kqbBallMode = (on) => {
+  document.body.classList.toggle("ball-mode", !!on);
+  if (on) {
     // Fold panels WITHOUT closeLogin()/closeProfile(): those resize the
     // window via set_card_height, which would instantly undo ball mode.
     stopQrPolling();
@@ -453,7 +455,8 @@ window.__TAURI__.event.listen("ball-mode", (e) => {
     hideEl($("profilePanel"));
     hideEl($("confirmMask"));
   }
-});
+};
+window.__TAURI__.event.listen("ball-mode", (e) => window.__kqbBallMode(!!e.payload));
 
 // Ball gestures: a plain click expands the card; a real drag moves the ball
 // (dropping it away from the edge also expands, handled natively on Moved).

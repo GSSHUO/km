@@ -104,6 +104,9 @@ fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
         let _ = window.set_position(PhysicalPosition::new(x, pos.y));
     }
     let _ = window.emit("ball-mode", true);
+    // Direct eval is the reliable channel (event emit can be dropped while
+    // the window is mid-resize); app.js exposes __kqbBallMode for this.
+    let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(true)");
 }
 
 fn exit_ball(window: &tauri::WebviewWindow) {
@@ -130,11 +133,20 @@ fn exit_ball(window: &tauri::WebviewWindow) {
             let _ = window.set_size(tauri::PhysicalSize::new(card_w, card_h));
             let _ = window.set_position(PhysicalPosition::new(x, pos.y));
             let _ = window.emit("ball-mode", false);
+            let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
             return;
         }
     }
     let _ = window.set_size(tauri::PhysicalSize::new(card_w, card_h));
     let _ = window.emit("ball-mode", false);
+    let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
+}
+
+/// Hidden diagnostic: lets --check-ball read back DOM state through the
+/// invoke channel instead of relying on document.title sync timing.
+#[tauri::command]
+fn report_dom(state: String) {
+    println!("dom-report: {state}");
 }
 
 /// Ball click → expand. Dragging the ball away from the edge also expands,
@@ -439,6 +451,23 @@ fn recreate_web_login_on_error_page(app: &AppHandle) {
     });
 }
 
+/// Force the compositor to repaint: a live DOM can still paint white when
+/// WebView2's GPU compositor freezes (observed in the field: healthy page
+/// per the diag probe, white window on screen). A 1-px size nudge kicks
+/// the compositor without disturbing the layout.
+fn nudge_web_login_repaint(app: &AppHandle) {
+    let app2 = app.clone();
+    let dispatcher = app.clone();
+    let _ = dispatcher.run_on_main_thread(move || {
+        let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) else { return };
+        if let Ok(size) = w.outer_size() {
+            let _ = w.set_size(tauri::PhysicalSize::new(size.width + 1, size.height));
+            let _ = w.set_size(size);
+        }
+    });
+    append_diag_log("web-login repaint nudged");
+}
+
 /// One-shot blank/hang watchdog (re-armed on every retry).
 fn start_web_login_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
@@ -479,6 +508,7 @@ fn start_web_login_watchdog(app: AppHandle) {
             let _ = w2.eval(WEB_LOGIN_DIAG_JS);
             std::thread::sleep(Duration::from_secs(3));
             if WEBLOGIN_DIAG_RECEIVED.load(Ordering::SeqCst) {
+                nudge_web_login_repaint(&app);
                 return;
             }
             append_diag_log("web-login diag probe unanswered after reload; recreating window");
@@ -489,7 +519,11 @@ fn start_web_login_watchdog(app: AppHandle) {
         let _ = w.eval(WEB_LOGIN_DIAG_JS);
         std::thread::sleep(Duration::from_secs(3));
         if WEBLOGIN_DIAG_RECEIVED.load(Ordering::SeqCst) {
-            return; // probe answered; the nav handler dealt with any blank page
+            // Page is healthy in the DOM (the nav handler already rebuilt a
+            // truly blank page onto the error page) — kick the compositor
+            // so a frozen frame actually paints.
+            nudge_web_login_repaint(&app);
+            return;
         }
         // Renderer hung — destroy and recreate on the local error page.
         append_diag_log("web-login diag probe unanswered; recreating window");
@@ -1009,6 +1043,15 @@ fn main() {
                     let _ = w.set_position(PhysicalPosition::new(m_right - size.width as i32 + 40, y));
                     std::thread::sleep(Duration::from_millis(2500));
                     out["rightBall"] = json!(in_ball_mode());
+                    // Read back the actual DOM state via a hidden command:
+                    // confirms the ball-mode switch reached the frontend.
+                    let _ = w.eval(concat!(
+                        "window.__TAURI__.core.invoke('report_dom', { state:",
+                        " document.body.className + '|' +",
+                        " getComputedStyle(document.querySelector('.card')).display + '|' +",
+                        " getComputedStyle(document.getElementById('ball')).display })"
+                    ));
+                    std::thread::sleep(Duration::from_millis(400));
                     // 2) drag away → expand
                     if let Ok(p) = w.outer_position() {
                         let _ = w.set_position(PhysicalPosition::new(p.x - 300, p.y));
@@ -1054,6 +1097,7 @@ fn main() {
             retry_web_login,
             close_web_login,
             expand_card,
+            report_dom,
             get_profile,
         ])
         .run(tauri::generate_context!())
