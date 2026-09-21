@@ -17,8 +17,8 @@ const CARD_HEIGHT: i32 = 224;
 /// Ball-mode diameter (logical px) and edge-proximity thresholds (physical
 /// px). ENTER must stay well under EXIT so the snap itself never re-triggers.
 const BALL_SIZE: f64 = 72.0;
-const EDGE_ENTER_GAP: i32 = 12;
-const EDGE_EXIT_GAP: i32 = 36;
+const EDGE_ENTER_GAP: i32 = 28;
+const EDGE_EXIT_GAP: i32 = 48;
 
 // ---------- persistence ----------
 
@@ -86,27 +86,60 @@ fn monitor_left(window: &tauri::WebviewWindow) -> Option<i32> {
     Some(m.position().x)
 }
 
+/// Smoothly shrink/grow the window between two geometries (x, y, w, h in
+/// physical px) over ~180 ms with an ease-out curve, so docking to / from
+/// ball mode reads as a transition instead of a jump cut.
+fn animate_window_geom(
+    window: &tauri::WebviewWindow,
+    from: (i32, i32, i32, i32),
+    to: (i32, i32, i32, i32),
+) {
+    let w = window.clone();
+    std::thread::spawn(move || {
+        const STEPS: i32 = 9;
+        for i in 1..=STEPS {
+            let t = i as f64 / STEPS as f64;
+            let t = 1.0 - (1.0 - t).powi(3); // ease-out cubic
+            let lerp = |a: i32, b: i32| (a as f64 + (b - a) as f64 * t).round() as i32;
+            let _ = w.set_size(tauri::PhysicalSize::new(
+                lerp(from.2, to.2).max(1) as u32,
+                lerp(from.3, to.3).max(1) as u32,
+            ));
+            let _ = w.set_position(PhysicalPosition::new(lerp(from.0, to.0), lerp(from.1, to.1)));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+}
+
 fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
     let Ok(pos) = window.outer_position() else { return };
+    let Ok(size) = window.outer_size() else { return };
     *BALL_MODE.lock().unwrap() = true;
     *BALL_DOCK.lock().unwrap() = edge;
-    *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(800));
+    *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1200));
     let scale = window.scale_factor().unwrap_or(1.0);
-    let ball = (BALL_SIZE * scale).round() as u32;
-    let _ = window.set_size(tauri::PhysicalSize::new(ball, ball));
-    // Snap flush onto the edge the card was dragged to. A card pushed past
-    // the edge (negative gap) is pulled back on-screen by the same snap.
-    let x = match edge {
-        DockEdge::Right => monitor_right(window).map(|r| r - ball as i32),
-        DockEdge::Left => monitor_left(window),
-    };
-    if let Some(x) = x {
-        let _ = window.set_position(PhysicalPosition::new(x, pos.y));
-    }
+    let ball = (BALL_SIZE * scale).round() as i32;
+    // Switch the UI first so the card↔ball cross-fade runs together with
+    // the window shrink animation below.
     let _ = window.emit("ball-mode", true);
     // Direct eval is the reliable channel (event emit can be dropped while
     // the window is mid-resize); app.js exposes __kqbBallMode for this.
     let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(true)");
+    // Snap flush onto the edge the card was dragged to. A card pushed past
+    // the edge (negative gap) is pulled back on-screen by the same snap.
+    let x = match edge {
+        DockEdge::Right => monitor_right(window).map(|r| r - ball),
+        DockEdge::Left => monitor_left(window),
+    };
+    if let Some(x) = x {
+        animate_window_geom(
+            window,
+            (pos.x, pos.y, size.width as i32, size.height as i32),
+            (x, pos.y, ball, ball),
+        );
+    } else {
+        let _ = window.set_size(tauri::PhysicalSize::new(ball as u32, ball as u32));
+    }
 }
 
 fn exit_ball(window: &tauri::WebviewWindow) {
@@ -114,30 +147,30 @@ fn exit_ball(window: &tauri::WebviewWindow) {
     *BALL_MODE.lock().unwrap() = false;
     *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1500));
     let scale = window.scale_factor().unwrap_or(1.0);
-    let card_w = (CARD_WIDTH as f64 * scale).round() as u32;
-    let card_h = (CARD_HEIGHT as f64 * scale).round() as u32;
+    let card_w = (CARD_WIDTH as f64 * scale).round() as i32;
+    let card_h = (CARD_HEIGHT as f64 * scale).round() as i32;
     // Expand away from the docked edge so the docked side stays put; clamp
     // to the monitor in case the ball sits near the edge of another one.
     if let Ok(pos) = window.outer_position() {
         if let Ok(size) = window.outer_size() {
             let mut x = match edge {
-                DockEdge::Right => pos.x + size.width as i32 - card_w as i32,
+                DockEdge::Right => pos.x + size.width as i32 - card_w,
                 DockEdge::Left => pos.x,
             };
             if let Some(m) = window.current_monitor().ok().flatten() {
-                x = x.clamp(
-                    m.position().x,
-                    m.position().x + m.size().width as i32 - card_w as i32,
-                );
+                x = x.clamp(m.position().x, m.position().x + m.size().width as i32 - card_w);
             }
-            let _ = window.set_size(tauri::PhysicalSize::new(card_w, card_h));
-            let _ = window.set_position(PhysicalPosition::new(x, pos.y));
             let _ = window.emit("ball-mode", false);
             let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
+            animate_window_geom(
+                window,
+                (pos.x, pos.y, size.width as i32, size.height as i32),
+                (x, pos.y, card_w, card_h),
+            );
             return;
         }
     }
-    let _ = window.set_size(tauri::PhysicalSize::new(card_w, card_h));
+    let _ = window.set_size(tauri::PhysicalSize::new(card_w as u32, card_h as u32));
     let _ = window.emit("ball-mode", false);
     let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
 }
@@ -861,7 +894,7 @@ fn main() {
 
             // Save position after dragging and drive ball mode, both on a
             // real debounce: Moved events stop the moment the drag ends, so
-            // the edge check is scheduled 400 ms out and only the latest
+            // the edge check is scheduled 200 ms out and only the latest
             // schedule is allowed to run.
             let app_handle = app.handle().clone();
             window.on_window_event(move |event| match event {
@@ -869,7 +902,7 @@ fn main() {
                     let gen = MOVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
                     let app2 = app_handle.clone();
                     std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(400));
+                        std::thread::sleep(Duration::from_millis(200));
                         if MOVE_GEN.load(Ordering::SeqCst) != gen {
                             return;
                         }
