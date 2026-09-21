@@ -49,6 +49,13 @@ fn save_position(x: i32, y: i32) {
 // restores the last CARD position.
 
 static BALL_MODE: Mutex<bool> = Mutex::new(false);
+/// Which screen edge the ball is docked to (right or left).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DockEdge {
+    Left,
+    Right,
+}
+static BALL_DOCK: Mutex<DockEdge> = Mutex::new(DockEdge::Right);
 /// Brief window after a programmatic resize during which Moved events must
 /// not retrigger edge detection (the expand lands flush on the edge).
 static BALL_SUPPRESS_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
@@ -73,32 +80,52 @@ fn monitor_right(window: &tauri::WebviewWindow) -> Option<i32> {
     Some(m.position().x + m.size().width as i32)
 }
 
-fn enter_ball(window: &tauri::WebviewWindow) {
+/// Physical-px left edge of the monitor currently holding the window.
+fn monitor_left(window: &tauri::WebviewWindow) -> Option<i32> {
+    let m = window.current_monitor().ok().flatten()?;
+    Some(m.position().x)
+}
+
+fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
     let Ok(pos) = window.outer_position() else { return };
     *BALL_MODE.lock().unwrap() = true;
+    *BALL_DOCK.lock().unwrap() = edge;
     *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(800));
     let scale = window.scale_factor().unwrap_or(1.0);
     let ball = (BALL_SIZE * scale).round() as u32;
     let _ = window.set_size(tauri::PhysicalSize::new(ball, ball));
-    if let Some(right) = monitor_right(window) {
-        let _ = window.set_position(PhysicalPosition::new(right - ball as i32, pos.y));
+    // Snap flush onto the edge the card was dragged to. A card pushed past
+    // the edge (negative gap) is pulled back on-screen by the same snap.
+    let x = match edge {
+        DockEdge::Right => monitor_right(window).map(|r| r - ball as i32),
+        DockEdge::Left => monitor_left(window),
+    };
+    if let Some(x) = x {
+        let _ = window.set_position(PhysicalPosition::new(x, pos.y));
     }
     let _ = window.emit("ball-mode", true);
 }
 
 fn exit_ball(window: &tauri::WebviewWindow) {
+    let edge = *BALL_DOCK.lock().unwrap();
     *BALL_MODE.lock().unwrap() = false;
     *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1500));
     let scale = window.scale_factor().unwrap_or(1.0);
     let card_w = (CARD_WIDTH as f64 * scale).round() as u32;
     let card_h = (CARD_HEIGHT as f64 * scale).round() as u32;
-    // Expand leftward from the ball so its right edge stays put; clamp to
-    // the monitor in case the ball sits near the left edge of another one.
+    // Expand away from the docked edge so the docked side stays put; clamp
+    // to the monitor in case the ball sits near the edge of another one.
     if let Ok(pos) = window.outer_position() {
         if let Ok(size) = window.outer_size() {
-            let mut x = pos.x + size.width as i32 - card_w as i32;
+            let mut x = match edge {
+                DockEdge::Right => pos.x + size.width as i32 - card_w as i32,
+                DockEdge::Left => pos.x,
+            };
             if let Some(m) = window.current_monitor().ok().flatten() {
-                x = x.max(m.position().x);
+                x = x.clamp(
+                    m.position().x,
+                    m.position().x + m.size().width as i32 - card_w as i32,
+                );
             }
             let _ = window.set_size(tauri::PhysicalSize::new(card_w, card_h));
             let _ = window.set_position(PhysicalPosition::new(x, pos.y));
@@ -822,15 +849,26 @@ fn main() {
                                 if ball_suppressed() {
                                     return;
                                 }
-                                let Some(right) = monitor_right(&w) else { return };
-                                let gap = right - (pos.x + size.width as i32);
-                                if (0..=EDGE_ENTER_GAP).contains(&gap) {
-                                    enter_ball(&w);
+                                // Dragged to (or past) a side edge: a negative
+                                // gap means the card overshot the screen edge —
+                                // the common way users slam a window against it —
+                                // and must trigger just like a flush dock.
+                                let right_gap =
+                                    monitor_right(&w).map(|r| r - (pos.x + size.width as i32));
+                                let left_gap = monitor_left(&w).map(|l| pos.x - l);
+                                if right_gap.is_some_and(|g| g <= EDGE_ENTER_GAP) {
+                                    enter_ball(&w, DockEdge::Right);
+                                } else if left_gap.is_some_and(|g| g <= EDGE_ENTER_GAP) {
+                                    enter_ball(&w, DockEdge::Left);
                                 }
                             } else {
-                                let Some(right) = monitor_right(&w) else { return };
-                                let gap = right - (pos.x + size.width as i32);
-                                if gap.abs() > EDGE_EXIT_GAP {
+                                let edge = *BALL_DOCK.lock().unwrap();
+                                let gap = match edge {
+                                    DockEdge::Right => monitor_right(&w)
+                                        .map(|r| r - (pos.x + size.width as i32)),
+                                    DockEdge::Left => monitor_left(&w).map(|l| pos.x - l),
+                                };
+                                if gap.is_some_and(|g| g.abs() > EDGE_EXIT_GAP) {
                                     exit_ball(&w);
                                 }
                             }
@@ -939,6 +977,62 @@ fn main() {
                         .map(|u| u.to_string())
                         .unwrap_or_else(|| "window-missing".to_string());
                     println!("{}", json!({ "webLoginErrorUrl": url }));
+                    app_handle.exit(0);
+                });
+            }
+
+            // --check-ball: drives the dock-to-edge flow programmatically —
+            // push the card PAST the right edge (negative gap, the case that
+            // used to silently do nothing), expect ball mode; drag away,
+            // expect expand; then the same across the left edge.
+            if args.iter().any(|a| a == "--check-ball") {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(2));
+                    let Some(w) = app_handle.get_webview_window("main") else {
+                        println!("{}", json!({ "ok": false, "error": "main window missing" }));
+                        app_handle.exit(1);
+                        return;
+                    };
+                    let Some(m) = w.current_monitor().ok().flatten() else {
+                        println!("{}", json!({ "ok": false, "error": "no monitor" }));
+                        app_handle.exit(1);
+                        return;
+                    };
+                    let m_left = m.position().x;
+                    let m_right = m.position().x + m.size().width as i32;
+                    let home = w.outer_position().ok();
+                    let size = w.outer_size().unwrap_or_default();
+                    let y = home.as_ref().map(|p| p.y).unwrap_or(100);
+                    let mut out = json!({ "ok": true });
+                    // 1) overshoot the right edge → ball
+                    let _ = w.set_position(PhysicalPosition::new(m_right - size.width as i32 + 40, y));
+                    std::thread::sleep(Duration::from_millis(2500));
+                    out["rightBall"] = json!(in_ball_mode());
+                    // 2) drag away → expand
+                    if let Ok(p) = w.outer_position() {
+                        let _ = w.set_position(PhysicalPosition::new(p.x - 300, p.y));
+                    }
+                    std::thread::sleep(Duration::from_millis(2500));
+                    out["rightExpand"] = json!(!in_ball_mode());
+                    // 3) overshoot the left edge → ball
+                    let _ = w.set_position(PhysicalPosition::new(m_left - 30, y));
+                    std::thread::sleep(Duration::from_millis(2500));
+                    out["leftBall"] = json!(in_ball_mode());
+                    // 4) drag away → expand
+                    if let Ok(p) = w.outer_position() {
+                        let _ = w.set_position(PhysicalPosition::new(p.x + 300, p.y));
+                    }
+                    std::thread::sleep(Duration::from_millis(2500));
+                    out["leftExpand"] = json!(!in_ball_mode());
+                    if let Some(p) = home {
+                        let _ = w.set_position(p);
+                    }
+                    out["ok"] = json!(out["rightBall"] == true
+                        && out["rightExpand"] == true
+                        && out["leftBall"] == true
+                        && out["leftExpand"] == true);
+                    println!("{out}");
                     app_handle.exit(0);
                 });
             }
