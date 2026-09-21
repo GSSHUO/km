@@ -381,17 +381,81 @@ fn start_web_login_poll(app: AppHandle) {
     });
 }
 
+/// Record the login window's URL a few times after creation so any failed
+/// run leaves a complete timeline in the diag log.
+fn start_web_login_url_timeline(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut elapsed = 0u64;
+        for target in [3u64, 8, 15, 25] {
+            std::thread::sleep(Duration::from_secs(target - elapsed));
+            elapsed = target;
+            let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+            let url = w
+                .url()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|_| "<url error>".into());
+            append_diag_log(&format!("web-login timeline t={target}s url={url}"));
+        }
+    });
+}
+
+/// Destroy the login window and rebuild it on the local error page (main
+/// thread hop required for WebView2).
+fn recreate_web_login_on_error_page(app: &AppHandle) {
+    let app2 = app.clone();
+    let dispatcher = app.clone();
+    let _ = dispatcher.run_on_main_thread(move || {
+        if let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) {
+            let _ = w.close();
+        }
+        build_web_login_window(&app2, tauri::WebviewUrl::App("weblogin-error.html".into()));
+    });
+}
+
 /// One-shot blank/hang watchdog (re-armed on every retry).
 fn start_web_login_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(15));
         let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
-        // Only probe while the window is still on kimi.com.
+        let url_now = w
+            .url()
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| "<url error>".into());
+        append_diag_log(&format!("web-login watchdog check: url={url_now}"));
         let on_kimi = w
             .url()
             .map(|u| u.host_str() == Some("www.kimi.com"))
             .unwrap_or(false);
         if !on_kimi {
+            // Navigation never committed (stuck on about:blank) or went
+            // somewhere unexpected: force one reload, then re-check.
+            append_diag_log("web-login not on kimi.com; forcing reload");
+            let _ = w.eval(&format!("location.replace('{WEB_LOGIN_HOME}')"));
+            std::thread::sleep(Duration::from_secs(15));
+            let Some(w2) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+            let url2 = w2
+                .url()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|_| "<url error>".into());
+            append_diag_log(&format!("web-login recheck after reload: url={url2}"));
+            let on_kimi2 = w2
+                .url()
+                .map(|u| u.host_str() == Some("www.kimi.com"))
+                .unwrap_or(false);
+            if !on_kimi2 {
+                append_diag_log("web-login still off kimi.com after reload; recreating window");
+                recreate_web_login_on_error_page(&app);
+                return;
+            }
+            // Reload landed on kimi.com — fall through to the probe below.
+            WEBLOGIN_DIAG_RECEIVED.store(false, Ordering::SeqCst);
+            let _ = w2.eval(WEB_LOGIN_DIAG_JS);
+            std::thread::sleep(Duration::from_secs(3));
+            if WEBLOGIN_DIAG_RECEIVED.load(Ordering::SeqCst) {
+                return;
+            }
+            append_diag_log("web-login diag probe unanswered after reload; recreating window");
+            recreate_web_login_on_error_page(&app);
             return;
         }
         WEBLOGIN_DIAG_RECEIVED.store(false, Ordering::SeqCst);
@@ -402,17 +466,7 @@ fn start_web_login_watchdog(app: AppHandle) {
         }
         // Renderer hung — destroy and recreate on the local error page.
         append_diag_log("web-login diag probe unanswered; recreating window");
-        let app2 = app.clone();
-        let dispatcher = app.clone();
-        let _ = dispatcher.run_on_main_thread(move || {
-            if let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) {
-                let _ = w.close();
-            }
-            build_web_login_window(
-                &app2,
-                tauri::WebviewUrl::App("weblogin-error.html".into()),
-            );
-        });
+        recreate_web_login_on_error_page(&app);
     });
 }
 
@@ -434,6 +488,7 @@ fn open_web_login(app: tauri::AppHandle) {
         );
         start_web_login_poll(app.clone());
         start_web_login_watchdog(app.clone());
+        start_web_login_url_timeline(app.clone());
     });
 }
 
@@ -444,7 +499,8 @@ fn retry_web_login(app: tauri::AppHandle) {
         let _ = w.eval(&format!("location.replace('{WEB_LOGIN_HOME}')"));
     }
     start_web_login_poll(app.clone());
-    start_web_login_watchdog(app);
+    start_web_login_watchdog(app.clone());
+    start_web_login_url_timeline(app);
 }
 
 /// Local error page's close button (in-page, always responsive).
