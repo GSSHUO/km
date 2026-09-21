@@ -14,6 +14,9 @@
   全屏应用下自动隐藏（系统原生行为）
 - 用量着色：< 50% 绿 / < 80% 黄 / ≥ 80% 红，附重置倒计时
 - 显示 Kimi Code 用量占比
+- **应用内登录**：微信 / Kimi 手机客户端扫码登录、手机验证码登录、一键退出；
+  自有登录会话加密保存在本机并优先于客户端会话（短信发送受服务端人机验证
+  限制时，可一键打开内嵌官方登录页完成验证，令牌自动回传）
 - **自动续期**：Kimi 客户端关闭也不怕——访问令牌过期后应用会自己调官方
   刷新接口换新并写回，最长 90 天免登录
 
@@ -25,9 +28,10 @@
 应用**不包含任何账号信息**，也没有自己的登录界面。它读取的是
 **本机 Kimi 桌面客户端当前登录账号**的本地会话：
 
-1. 读取 `kimi-desktop/bridge-store/token-store.json`（Electron safeStorage 加密）
-2. 用本机钥匙串中的 `kimi-desktop Safe Storage` 密钥解密（首次运行 macOS 会弹授权框，
-   点「始终允许」即可；Windows 上用 DPAPI，无弹窗）
+1. 读取 `kimi-desktop/bridge-store/token-store.json`（Chromium OSCrypt 加密）
+2. 用本机保存的 OSCrypt 密钥解密：macOS 从钥匙串读取 `kimi-desktop Safe Storage`
+   （首次运行会弹授权框，点「始终允许」即可）；Windows 用 DPAPI 解开
+   `Local State` 里的密钥再做 AES-256-GCM 解密（无弹窗）
 3. 检查访问令牌有效期：新鲜就直接用；快过期时用文件里的刷新令牌调用官方接口
    `www.kimi.com/api/auth/token/refresh` 换新，并把轮转后的新令牌对**加密写回**原文件，
    桌面客户端不受影响
@@ -37,7 +41,12 @@
 客户端只需在 90 天内登录过一次即可；超过 90 天未登录导致刷新令牌失效时，
 卡片会提示你打开客户端登录一次。
 
-前置条件：本机安装并登录过 Kimi 桌面客户端（不需要它一直运行）。
+此外也可以**在卡片里直接登录**（点头像图标）：扫码（微信 / Kimi 手机客户端）
+或手机验证码。自有登录会话加密保存在 `kimi-quota-bar/session.json`（Windows
+DPAPI / macOS 钥匙串派生密钥），存在时优先于客户端会话；退出登录只清除这个
+自有会话并回落到跟随客户端，**不会影响 Kimi 客户端的登录态**。
+
+前置条件：本机安装并登录过 Kimi 桌面客户端（不需要它一直运行）；或在应用内登录。
 
 > 说明：kimi-code 命令行工具的登录态与套餐额度接口不属于同一签名体系，
 > 不能作为本应用的数据来源。
@@ -96,6 +105,7 @@ git tag v0.1.1 && git push origin v0.1.1
 ```bash
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-refresh   # 强制轮转一次令牌
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-login     # 验证扫码登录链路
 ```
 
 输出为 JSON；`"ok": true` 即链路正常。

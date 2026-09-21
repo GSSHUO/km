@@ -1,6 +1,6 @@
 {
   "name": "kimi-quota-bar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Menu-bar card showing Kimi subscription quota usage",
   "main": "index.js",
   "scripts": {

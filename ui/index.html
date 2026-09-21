@@ -14,10 +14,22 @@
       </div>
       <div class="header-right">
         <span class="updated" id="updatedAt">--</span>
+        <button class="icon-btn" id="accountBtn" title="账号 / 登录">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
+          </svg>
+        </button>
         <button class="icon-btn" id="refreshBtn" title="立即刷新">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
                stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="hideCardBtn" title="关闭">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
           </svg>
         </button>
       </div>
@@ -61,9 +73,94 @@
     <div class="error hidden" id="errorBox">
       <div class="error-msg" id="errorMsg">加载失败</div>
       <button class="retry" id="retryBtn">重试</button>
+      <button class="retry" id="loginFromErrorBtn">去登录</button>
     </div>
 
     <div class="footer" id="footer">每 60 秒自动刷新</div>
+
+    <div class="login-panel hidden" id="loginPanel">
+      <div class="login-header">
+        <span class="login-title">登录 Kimi 账号</span>
+        <button class="icon-btn" id="loginCloseBtn" title="关闭">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="login-tabs">
+        <button class="login-tab active" id="tabQr">扫码登录</button>
+        <button class="login-tab" id="tabSms">手机验证码</button>
+      </div>
+
+      <div class="login-body" id="qrPane">
+        <div class="qr-wrap"><canvas id="qrCanvas" width="176" height="176"></canvas></div>
+        <div class="qr-status" id="qrStatus">正在生成二维码…</div>
+        <button class="link-btn hidden" id="qrRefreshBtn">点击刷新二维码</button>
+        <div class="login-hint">使用微信或 Kimi 手机客户端扫码</div>
+      </div>
+
+      <div class="login-body hidden" id="smsPane">
+        <div class="sms-row">
+          <input class="sms-cc" id="smsCC" value="86" maxlength="4" inputmode="numeric" />
+          <input class="sms-phone" id="smsPhone" placeholder="手机号" maxlength="11" inputmode="numeric" />
+        </div>
+        <div class="sms-row">
+          <input class="sms-code" id="smsCode" placeholder="验证码" maxlength="6" inputmode="numeric" />
+          <button class="sms-send" id="smsSendBtn">发送验证码</button>
+        </div>
+        <button class="login-submit" id="smsLoginBtn">登录</button>
+        <div class="login-error" id="smsError"></div>
+        <button class="link-btn" id="webLoginBtn">短信受限？用官方网页登录（支持短信验证）</button>
+      </div>
+    </div>
+
+    <div class="profile-panel hidden" id="profilePanel">
+      <div class="login-header">
+        <span class="login-title">个人中心</span>
+        <button class="icon-btn" id="profileCloseBtn" title="关闭">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="profile-body">
+        <div class="profile-top">
+          <div class="avatar" id="profileAvatar">K</div>
+          <div class="profile-idbox">
+            <div class="profile-uid" id="profileUid">--</div>
+            <div class="profile-source" id="profileSource">--</div>
+          </div>
+        </div>
+        <div class="profile-rows">
+          <div class="profile-row"><span class="k">会员计划</span><span class="v" id="profilePlan">--</span></div>
+          <div class="profile-row"><span class="k">状态</span><span class="v" id="profileStatus">--</span></div>
+          <div class="profile-row"><span class="k">到期时间</span><span class="v" id="profileExpire">--</span></div>
+        </div>
+        <button class="logout-btn" id="logoutBtn">退出登录</button>
+      </div>
+    </div>
+
+    <div class="confirm-mask hidden" id="confirmMask">
+      <div class="confirm-dialog">
+        <div class="confirm-title">确认退出登录？</div>
+        <div class="confirm-text" id="confirmText">退出后卡片将显示未登录状态。</div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="confirmCancelBtn">取消</button>
+          <button class="confirm-ok" id="confirmOkBtn">确认退出</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
+    <svg viewBox="0 0 72 72">
+      <circle class="track" cx="36" cy="36" r="30"/>
+      <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
+    </svg>
+    <span class="pct" id="pct-ball">–</span>
   </div>
   <script src="app.js"></script>
 </body>

@@ -1,6 +1,6 @@
 [package]
 name = "kimi-quota-bar"
-version = "0.1.1"
+version = "0.1.2"
 description = "Menu-bar card showing Kimi subscription quota usage"
 edition = "2021"
 rust-version = "1.77"
@@ -26,12 +26,17 @@ tauri-plugin-liquid-glass = "0.1"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+qrcode = "0.14"
+rand = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Security_Cryptography",
     "Win32_Foundation",
+    "Win32_System_Console",
 ] }
+# Chromium OSCrypt on Windows: AES-256-GCM (key DPAPI-wrapped in Local State)
+aes-gcm = "0.10"
 
 [profile.release]
 opt-level = 3
