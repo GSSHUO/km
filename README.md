@@ -12,8 +12,9 @@
   旧版 macOS 回退 NSVisualEffectView，Windows 用 Acrylic
 - 卡片可拖动，位置自动记忆；点击其他窗口不会关闭卡片；
   全屏应用下自动隐藏（系统原生行为）
-- **贴边缩球**：把卡片拖到屏幕右边缘松手，自动吸附缩成一个小球
-  （显示总量百分比圆环）；单击小球或把它拖离边缘即展开回卡片
+- **贴边缩球**：把卡片拖到屏幕左 / 右边缘（拖过边缘也算）松手，卡片以
+  缓出动画平滑缩成小球并吸附贴边（球体圆环 + 两位小数显示总量已用百分比）；
+  单击小球或把它拖离边缘即动画展开回卡片
 - 用量着色：< 50% 绿 / < 80% 黄 / ≥ 80% 红，附重置倒计时，百分比两位小数显示
 - 显示 Kimi Code 用量占比
 - **应用内登录**：微信 / Kimi 手机客户端扫码登录、手机验证码登录；
@@ -35,11 +36,17 @@
   会员计划 / 等级 / 生效状态 / 到期时间（来自官方 `GetSubscription` 接口）
 - **退出登录二次确认**：退出前弹出应用内确认弹窗（取消 / 确认退出），
   文案按登录态区分；退出后卡片显示未登录，桌面客户端登录态不受影响
-- **贴边缩球**：卡片拖到屏幕右边缘自动吸附成球，单击或拖离恢复
+- **贴边缩球**：卡片拖到屏幕左 / 右边缘自动吸附成球（拖过边缘同样触发，
+  边缘检测 28px / 拖拽停止后 200ms 响应）；缩球与展开均带 180ms 缓出
+  窗口动画 + 球体缩放淡入动画；UI 切换采用事件 + 直接 eval 双通道推送，
+  杜绝「窗口缩了但界面没变」
 - **扫码登录修复**：官方接口响应字段为 camelCase，旧版解析丢令牌导致
   「扫码成功但面板不跳转」，已修复并增加失败提示
-- **网页登录修复**：内嵌登录窗口改为主线程创建并绕过系统代理，
-  修复白屏、无法关闭
+- **网页登录加固**：内嵌登录窗口主线程创建并绕过系统代理；15 秒看门狗
+  探测页面状态——空白 / 卡死自动重建到本地错误页（带重试、关闭按钮，
+  一定点得动）；导航未提交时先强制重载一次再复查；页面 DOM 健康但画面
+  冻结（GPU 合成层问题）时自动做 1px 重绘抖动唤醒绘制；全程 URL 时间线
+  写入 `%APPDATA%\kimi-quota-bar\web-login-diag.log` 便于诊断
 - 额度百分比改为两位小数显示
 
 ## 数据从哪来（重要）
@@ -129,7 +136,10 @@ git tag v0.1.2 && git push origin v0.1.2
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-qr        # 扫码登录全链路（模拟手机确认，不落盘）
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-session   # 自有会话加解密往返
 "/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-profile   # 个人中心数据（会员摘要 + 用户 ID）
-"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-weblogin  # 真实打开网页登录窗口并报告加载结果
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-weblogin        # 真实打开网页登录窗口并报告加载结果
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-weblogin-late   # 延迟 5 秒建窗，模拟真实点击时机
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-weblogin-error  # 直接打开本地错误页验证兜底资源
+"/Applications/Kimi Quota Bar.app/Contents/MacOS/kimi-quota-bar" --check-ball            # 贴边缩球全链路（右/左边缘缩球、拖离展开、DOM 切换回读）
 ```
 
 输出为 JSON；`"ok": true` 即链路正常。
@@ -141,7 +151,9 @@ kimi-quota-bar/
 ├── ui/                    # 卡片前端（原生 HTML/CSS/JS，无框架）
 │   ├── index.html
 │   ├── style.css
-│   └── app.js
+│   ├── app.js
+│   ├── weblogin-error.html  # 网页登录本地错误页（重试 / 关闭按钮）
+│   └── weblogin-error.js
 ├── src-tauri/
 │   ├── src/main.rs        # 托盘、窗口、毛玻璃、轮询、位置记忆、贴边球形态、登录/个人中心命令
 │   ├── src/auth.rs        # 令牌存取加解密、自动续期、官方登录 / 额度 / 会员接口
