@@ -228,7 +228,7 @@ body.ball-mode .ball {
     inset -5px 0 12px rgba(139, 140, 248, calc(0.16 + 0.12 * var(--orb-glow))),
     inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   cursor: pointer;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, filter 0.15s ease;
   animation: orb-in var(--orb-anim) var(--orb-spring);
   will-change: transform;
 }
@@ -301,9 +301,10 @@ body.ball-mode .ball {
   70% { opacity: 0.55; }
   100% { transform: translate3d(2px, -12px, 0) scale(1); opacity: 0; }
 }
-/* 环绕星点：一枚带辉光的小星沿球内缘缓慢环游 */
+/* 环绕星点：一枚带辉光的小星沿球内缘缓慢环游（轨道内收到 22px 半径，
+   辉光 6px 也不会被窗口边缘裁切） */
 .orb-orbit {
-  position: absolute; inset: 5px; border-radius: 50%;
+  position: absolute; inset: 8px; border-radius: 50%;
   animation: orb-spin 9s linear infinite reverse;
   will-change: transform;
   pointer-events: none;
@@ -332,8 +333,10 @@ body.ball-mode .orb-burst {
   20% { opacity: 0.8; }
   100% { opacity: 0; transform: scale(1.12); }
 }
-/* Hover：150ms 缩放到 1.06 + 极光增强一档；按下 80ms 收敛到 0.96 */
-.ball:hover { transform: scale(1.06); }
+/* Hover：150ms 内整体提亮 + 极光增强一档。窗口与球等大，放大球体必然
+   被窗口裁剪，故 Hover 不做整体缩放，用亮度与光晕反馈；
+   按下 80ms 收敛到 0.96（缩小不会越界） */
+.ball:hover { filter: brightness(1.12); }
 .ball:hover .orb-swirl { opacity: 0.78; }
 .ball:active { transform: scale(0.96); transition-duration: 0.08s; }
 /* 游离态呼吸浮动 2.9s（延迟到入场动画结束后接管 transform） */

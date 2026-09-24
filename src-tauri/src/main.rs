@@ -116,12 +116,39 @@ fn animate_window_geom(
     });
 }
 
+/// Native blur plate behind the transparent webview. The card uses a 16 px
+/// corner radius; the docked ball must be a full circle (radius = half the
+/// ball), otherwise the rounded-square plate peeks out as a gray frame
+/// around the orb.
+#[cfg(target_os = "macos")]
+fn apply_native_glass(window: &tauri::WebviewWindow, corner_radius: f64) {
+    use tauri_plugin_liquid_glass::{LiquidGlassConfig, LiquidGlassExt};
+    let glass_cfg = LiquidGlassConfig {
+        enabled: true,
+        corner_radius,
+        tint_color: Some("#1A1A2673".to_string()),
+        ..Default::default()
+    };
+    if window.liquid_glass().set_effect(window, glass_cfg).is_err() {
+        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        let _ = apply_vibrancy(
+            window,
+            NSVisualEffectMaterial::Popover,
+            Some(NSVisualEffectState::Active),
+            Some(corner_radius),
+        );
+    }
+}
+
 fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
     let Ok(pos) = window.outer_position() else { return };
     let Ok(size) = window.outer_size() else { return };
     *BALL_MODE.lock().unwrap() = true;
     *BALL_DOCK.lock().unwrap() = edge;
     *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1200));
+    // 球态下原生玻璃底板必须是正圆，否则圆角方形底板会在球外露出灰框。
+    #[cfg(target_os = "macos")]
+    apply_native_glass(window, BALL_SIZE / 2.0);
     let scale = window.scale_factor().unwrap_or(1.0);
     let ball = (BALL_SIZE * scale).round() as i32;
     // Switch the UI first so the card↔ball cross-fade runs together with
@@ -152,6 +179,9 @@ fn exit_ball(window: &tauri::WebviewWindow) {
     let edge = *BALL_DOCK.lock().unwrap();
     *BALL_MODE.lock().unwrap() = false;
     *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1500));
+    // 展开回卡片：原生玻璃底板恢复 16px 圆角。
+    #[cfg(target_os = "macos")]
+    apply_native_glass(window, 16.0);
     let scale = window.scale_factor().unwrap_or(1.0);
     let card_w = (CARD_WIDTH as f64 * scale).round() as i32;
     let card_h = (CARD_HEIGHT as f64 * scale).round() as i32;
@@ -847,26 +877,7 @@ fn main() {
 
             // Native blur behind the transparent card.
             #[cfg(target_os = "macos")]
-            {
-                use tauri_plugin_liquid_glass::{LiquidGlassConfig, LiquidGlassExt};
-                // macOS 26+: real Liquid Glass (NSGlassEffectView) with a dark
-                // tint and rounded corners; older macOS: classic vibrancy.
-                let glass_cfg = LiquidGlassConfig {
-                    enabled: true,
-                    corner_radius: 16.0,
-                    tint_color: Some("#1A1A2673".to_string()),
-                    ..Default::default()
-                };
-                if app.liquid_glass().set_effect(&window, glass_cfg).is_err() {
-                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-                    let _ = apply_vibrancy(
-                        &window,
-                        NSVisualEffectMaterial::Popover,
-                        Some(NSVisualEffectState::Active),
-                        Some(16.0),
-                    );
-                }
-            }
+            apply_native_glass(&window, 16.0);
             #[cfg(target_os = "windows")]
             {
                 let _ = window_vibrancy::apply_acrylic(&window, Some((16, 16, 24, 200)));
