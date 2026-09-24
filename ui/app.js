@@ -22,7 +22,9 @@ function setRing(id, ratio) {
   }
   const clamped = Math.max(0, Math.min(1, ratio));
   bar.style.strokeDashoffset = c * (1 - clamped);
-  bar.style.stroke = usageColor(clamped);
+  // 球体进度环统一用极光渐变（CSS url(#orbGrad)），不按用量变色；
+  // 卡片三环仍按用量着色。
+  if (id !== "ball") bar.style.stroke = usageColor(clamped);
   pct.textContent = (clamped * 100).toFixed(2) + "%";
 }
 

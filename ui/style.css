@@ -184,15 +184,19 @@ html, body {
 .login-submit:disabled { opacity: 0.45; cursor: default; }
 .login-error { font-size: 10.5px; color: #fca5a5; min-height: 14px; text-align: center; line-height: 1.4; }
 
-/* ---------- EdgeOrb: 贴边吸附球（玻璃拟态 × 汤圆系） ---------- */
-/* 可调参数：主题色 / 球体尺寸 / 光晕强度 / 动画时长。
+/* ---------- Edge Dock Orb: 边缘吸附浮珠（Aurora 极光玻璃珠） ---------- */
+/* 设计要点：无圈线描边——边缘靠柔和的内外光衰减定义；进度环统一为
+   极光渐变（青 → 紫 → 粉），不再按用量变色；粒子与星点仅为装饰层，
+   全部走 transform / opacity 合成层动画，不改任何交互与信息。
+   可调参数：极光三色 / 球体尺寸 / 光晕强度 / 动画时长。
    注意：--orb-size 是视觉层尺寸，窗口尺寸由 Rust 侧 BALL_SIZE 决定，两者需一致。 */
 :root {
   --orb-size: 60px;
-  --orb-theme: #ffc9d9;            /* 奶油粉（主） */
-  --orb-theme-2: #bcd8ff;          /* 奶油蓝（副） */
-  --orb-glow: 0.5;                 /* 光晕强度 0~1 */
-  --orb-anim: 300ms;               /* 吸附 / 展开弹性时长 */
+  --orb-cyan: #2dd4ee;             /* 极光青 */
+  --orb-violet: #8b8cf8;           /* 极光紫 */
+  --orb-pink: #f472b6;             /* 极光粉 */
+  --orb-glow: 0.6;                 /* 光晕强度 0~1 */
+  --orb-anim: 240ms;               /* 吸附 / 展开弹性时长 */
   --orb-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .ball { display: none; }
@@ -208,18 +212,21 @@ body.ball-mode .ball {
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
   color: rgba(255, 255, 255, 0.95);
-  /* 磨砂玻璃：奶油渐变底 + 高斯模糊透出后景 */
-  background: linear-gradient(135deg,
-    rgba(255, 227, 236, 0.18), rgba(227, 240, 255, 0.10));
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  /* 发光全部做在窗口内（窗口与球等大，外发光会被裁剪）：
-     1px 折射内描边 + 顶部内高光 + 底部奶油蓝反光 + 内圈主题色柔光 */
+  /* 磨砂芯 Frost Core：极光三色渐变底叠深色托底（色彩更饱和、
+     跨壁纸稳定）+ 高斯模糊透出后景 */
+  background: linear-gradient(140deg,
+    rgba(45, 212, 238, 0.34), rgba(139, 140, 248, 0.32) 48%,
+    rgba(244, 114, 182, 0.34)), rgba(22, 16, 46, 0.38);
+  backdrop-filter: blur(18px) saturate(190%);
+  -webkit-backdrop-filter: blur(18px) saturate(190%);
+  /* 无圈线：边缘用柔和内光衰减定义（窗口与球等大，外发光会被裁剪）。
+     顶部受光 + 底部青色反弹光 + 左右粉紫环境光 + 极淡边缘界定 */
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
-    inset 0 1px 2px rgba(255, 255, 255, 0.35),
-    inset 0 -8px 14px rgba(188, 216, 255, calc(0.16 + 0.2 * var(--orb-glow))),
-    inset 0 0 18px rgba(255, 201, 217, calc(0.3 * var(--orb-glow)));
+    inset 0 1px 2px rgba(255, 255, 255, 0.45),
+    inset 0 -7px 12px rgba(45, 212, 238, calc(0.20 + 0.14 * var(--orb-glow))),
+    inset 5px 0 12px rgba(244, 114, 182, calc(0.14 + 0.12 * var(--orb-glow))),
+    inset -5px 0 12px rgba(139, 140, 248, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   cursor: pointer;
   transition: transform 0.15s ease;
   animation: orb-in var(--orb-anim) var(--orb-spring);
@@ -227,88 +234,141 @@ body.ball-mode .ball {
 }
 /* 吸附瞬间：弹性过冲回弹（啪嗒感） */
 @keyframes orb-in {
-  from { opacity: 0; transform: scale(0.55); }
+  from { opacity: 0; transform: scale(0.5); }
   to { opacity: 1; transform: scale(1); }
 }
-/* 顶部 30% 弧形高光，让球体圆鼓鼓 */
+/* 顶部柔和镜面高光，让球体圆鼓鼓（无硬边弧线） */
 .ball::before {
-  content: ""; position: absolute; top: 7%; left: 50%;
-  width: 42%; height: 15%;
+  content: ""; position: absolute; top: 6%; left: 50%;
+  width: 46%; height: 18%;
   transform: translateX(-50%);
   border-radius: 50%;
   background: radial-gradient(ellipse at center,
-    rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 70%);
+    rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 70%);
   pointer-events: none;
 }
-/* 呼吸光环：4s 循环起伏 */
+/* 呼吸辉光 Rim Glow（内）：3.1s 循环起伏，透明度 0.55 ↔ 1，
+   中心偏紫而非死白，保持色彩感 */
 .ball::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle at 50% 42%,
-    rgba(255, 214, 228, calc(0.12 + 0.35 * var(--orb-glow))),
-    rgba(255, 214, 228, 0) 72%);
-  animation: orb-halo 4s ease-in-out infinite;
+  background: radial-gradient(circle at 50% 44%,
+    rgba(139, 140, 248, calc(0.18 + 0.24 * var(--orb-glow))),
+    rgba(45, 212, 238, calc(0.08 + 0.14 * var(--orb-glow))) 58%,
+    rgba(45, 212, 238, 0) 76%);
+  animation: orb-halo 3.1s ease-in-out infinite;
   will-change: opacity, transform;
   pointer-events: none;
 }
 @keyframes orb-halo {
-  0%, 100% { opacity: 0.35; transform: scale(0.96); }
-  50% { opacity: 0.85; transform: scale(1); }
+  0%, 100% { opacity: 0.55; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1); }
 }
-/* 游离态呼吸浮动（延迟到入场动画结束后接管 transform） */
+/* 极光流转底光：conic 渐变慢旋，径向 mask 让中心淡、边缘亮，
+   形成「活的极光」而非静止色块（无圈线，纯光晕） */
+.orb-swirl {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    rgba(45, 212, 238, 0), rgba(45, 212, 238, 0.55) 70deg,
+    rgba(139, 140, 248, 0.5) 165deg, rgba(244, 114, 182, 0.5) 255deg,
+    rgba(45, 212, 238, 0) 360deg);
+  -webkit-mask: radial-gradient(farthest-side,
+    rgba(0, 0, 0, 0.22), #000 80%);
+  mask: radial-gradient(farthest-side,
+    rgba(0, 0, 0, 0.22), #000 80%);
+  opacity: 0.58;
+  transition: opacity 0.15s ease;
+  animation: orb-spin 14s linear infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+/* 漂浮微粒：5 枚极光色光点缓慢上浮 + 闪烁，错开周期与相位 */
+.orb-particles { position: absolute; inset: 0; pointer-events: none; }
+.orb-particles i {
+  position: absolute; border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, currentColor 0%, transparent 70%);
+  animation: orb-float 4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.orb-particles .p1 { width: 3.5px; height: 3.5px; left: 24%; top: 62%; color: #7ef0ff; animation-duration: 3.4s; }
+.orb-particles .p2 { width: 2.5px; height: 2.5px; left: 58%; top: 70%; color: #c4b5fd; animation-duration: 4.2s; animation-delay: 0.8s; }
+.orb-particles .p3 { width: 3px; height: 3px; left: 44%; top: 56%; color: #ffffff; animation-duration: 3.0s; animation-delay: 1.6s; }
+.orb-particles .p4 { width: 2.5px; height: 2.5px; left: 68%; top: 46%; color: #f9a8d4; animation-duration: 4.8s; animation-delay: 0.4s; }
+.orb-particles .p5 { width: 3.5px; height: 3.5px; left: 32%; top: 40%; color: #a5f3fc; animation-duration: 5.2s; animation-delay: 2.2s; }
+@keyframes orb-float {
+  0% { transform: translate3d(0, 5px, 0) scale(0.6); opacity: 0; }
+  35% { opacity: 1; }
+  70% { opacity: 0.55; }
+  100% { transform: translate3d(2px, -12px, 0) scale(1); opacity: 0; }
+}
+/* 环绕星点：一枚带辉光的小星沿球内缘缓慢环游 */
+.orb-orbit {
+  position: absolute; inset: 5px; border-radius: 50%;
+  animation: orb-spin 9s linear infinite reverse;
+  will-change: transform;
+  pointer-events: none;
+}
+.orb-orbit i {
+  position: absolute; top: 0; left: 50%; margin-left: -1.5px;
+  width: 3px; height: 3px; border-radius: 50%;
+  background: radial-gradient(circle, #ffffff, rgba(45, 212, 238, 0.9) 60%, transparent 75%);
+  box-shadow: 0 0 6px 1px rgba(45, 212, 238, 0.85);
+}
+/* 入场光爆：吸附完成时一团极光柔光自球心扩散熄灭（取代旧扫光圈线） */
+.orb-burst {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255, 255, 255, 0.85), rgba(139, 140, 248, 0.45) 45%,
+    rgba(45, 212, 238, 0) 70%);
+  opacity: 0; transform: scale(0.6);
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+body.ball-mode .orb-burst {
+  animation: orb-burst 0.5s ease-out calc(var(--orb-anim) - 40ms);
+}
+@keyframes orb-burst {
+  0% { opacity: 0; transform: scale(0.6); }
+  20% { opacity: 0.8; }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+/* Hover：150ms 缩放到 1.06 + 极光增强一档；按下 80ms 收敛到 0.96 */
+.ball:hover { transform: scale(1.06); }
+.ball:hover .orb-swirl { opacity: 0.78; }
+.ball:active { transform: scale(0.96); transition-duration: 0.08s; }
+/* 游离态呼吸浮动 2.9s（延迟到入场动画结束后接管 transform） */
 .orb-body {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  animation: orb-breathe 4s ease-in-out calc(var(--orb-anim) + 40ms) infinite;
+  animation: orb-breathe 2.9s ease-in-out calc(var(--orb-anim) + 40ms) infinite;
   will-change: transform;
 }
 @keyframes orb-breathe {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.03); }
 }
-/* 贴合反馈：吸附完成时一圈 1px 亮边沿球缘扫过后熄灭；Hover 时常亮微光 */
-.orb-fx {
-  position: absolute; inset: 0; border-radius: 50%;
-  opacity: 0;
-  background: conic-gradient(from 230deg,
-    transparent 0deg, rgba(255, 255, 255, 0.95) 18deg, transparent 42deg);
-  -webkit-mask: radial-gradient(farthest-side,
-    transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
-  mask: radial-gradient(farthest-side,
-    transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
-  transition: opacity 0.2s ease;
-  will-change: opacity, transform;
-  pointer-events: none;
-}
-body.ball-mode .orb-fx {
-  animation: orb-sweep 0.55s ease-out calc(var(--orb-anim) - 60ms);
-}
-@keyframes orb-sweep {
-  0% { opacity: 0; transform: rotate(0deg); }
-  25% { opacity: 1; }
-  100% { opacity: 0; transform: rotate(160deg); }
-}
-/* Hover 光晕增强 / 按下回缩 */
-.ball:hover { transform: scale(1.06); }
-.ball:hover .orb-fx { opacity: 0.35; }
-.ball:active { transform: scale(0.94); transition-duration: 0.08s; }
 .orb-body svg {
   position: absolute; inset: 4px;
   width: calc(var(--orb-size) - 8px); height: calc(var(--orb-size) - 8px);
   transform: rotate(-90deg);
 }
+/* 进度轨道：极淡，仅作读数参照，不构成圈线感 */
 .orb-body .track {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.18);
+  stroke: rgba(255, 255, 255, 0.11);
   stroke-width: 6;
 }
+/* 进度弧：统一极光渐变（HTML 内联 orbGrad），带同色柔光；颜色固定，
+   不随用量变化（app.js 对球体环不再改写 stroke） */
 .orb-body .bar {
   fill: none;
-  stroke: #34d399;
+  stroke: url(#orbGrad);
   stroke-width: 6;
   stroke-linecap: round;
   stroke-dasharray: 188.5;
   stroke-dashoffset: 188.5;
-  transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s;
+  filter: drop-shadow(0 0 3px rgba(139, 140, 248, 0.85));
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* 主信息：13px 半粗体居中，与球壁留 5px+ 安全边距 */
 .orb-body .pct {
@@ -316,7 +376,25 @@ body.ball-mode .orb-fx {
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.4px;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 6px rgba(16, 10, 40, 0.6),
+    0 0 10px rgba(139, 140, 248, 0.35);
+}
+/* 高对比度模式：关闭辉光 / 粒子 / 模糊，保留清晰描边与信息可读性 */
+@media (prefers-contrast: more) {
+  body.ball-mode .ball {
+    background: rgba(16, 16, 26, 0.88);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9);
+  }
+  .orb-swirl, .orb-particles, .orb-orbit, .orb-burst,
+  body.ball-mode .ball::after { display: none; }
+}
+/* 减弱动效偏好：停止所有循环动画，保留静态极光玻璃质感 */
+@media (prefers-reduced-motion: reduce) {
+  .orb-swirl, .orb-orbit, .orb-particles i,
+  .orb-body, body.ball-mode .ball::after { animation: none; }
+  .orb-particles i { opacity: 0.5; }
 }
 
 /* ---------- personal center ---------- */

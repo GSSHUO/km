@@ -88,8 +88,8 @@ fn monitor_left(window: &tauri::WebviewWindow) -> Option<i32> {
 
 /// Smoothly shrink/grow the window between two geometries (x, y, w, h in
 /// physical px) with an ease-out-back (spring) curve — the overshoot gives
-/// the "magnetically sucked onto the edge" snap feel. Dock-in uses 300 ms,
-/// expand-out 260 ms. Pure visual feedback; trigger logic is unchanged.
+/// the "magnetically sucked onto the edge" snap feel. Dock-in uses 240 ms,
+/// expand-out 220 ms. Pure visual feedback; trigger logic is unchanged.
 fn animate_window_geom(
     window: &tauri::WebviewWindow,
     from: (i32, i32, i32, i32),
@@ -141,7 +141,7 @@ fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
             window,
             (pos.x, pos.y, size.width as i32, size.height as i32),
             (x, pos.y, ball, ball),
-            300, // dock-in: spring snap
+            240, // dock-in: spring snap
         );
     } else {
         let _ = window.set_size(tauri::PhysicalSize::new(ball as u32, ball as u32));
@@ -172,7 +172,7 @@ fn exit_ball(window: &tauri::WebviewWindow) {
                 window,
                 (pos.x, pos.y, size.width as i32, size.height as i32),
                 (x, pos.y, card_w, card_h),
-                260, // expand-out: reverse spring
+                220, // expand-out: reverse spring
             );
             return;
         }

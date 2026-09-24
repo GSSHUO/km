@@ -155,17 +155,31 @@
     </div>
   </div>
 
-  <!-- EdgeOrb: glass tang-yuan orb. Layers: rim-sweep FX (back) → breathing
-       body with the progress ring + percentage (content, unchanged). -->
+  <!-- Edge Dock Orb（边缘吸附浮珠）· Aurora 极光玻璃珠。
+       层序（后 → 前）：orb-swirl 极光流转底光 → orb-particles 漂浮微粒 →
+       orb-orbit 环绕星点 → orb-body 进度环 + 百分比（内容不变，id 不变）→
+       orb-burst 入场光爆（一次性）。无任何圈线描边层。 -->
   <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
-    <div class="orb-fx" aria-hidden="true"></div>
+    <div class="orb-swirl" aria-hidden="true"></div>
+    <div class="orb-particles" aria-hidden="true">
+      <i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i><i class="p5"></i>
+    </div>
+    <div class="orb-orbit" aria-hidden="true"><i></i></div>
     <div class="orb-body">
       <svg viewBox="0 0 72 72">
+        <defs>
+          <linearGradient id="orbGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#2dd4ee"/>
+            <stop offset="52%" stop-color="#8b8cf8"/>
+            <stop offset="100%" stop-color="#f472b6"/>
+          </linearGradient>
+        </defs>
         <circle class="track" cx="36" cy="36" r="30"/>
         <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
       </svg>
       <span class="pct" id="pct-ball">–</span>
     </div>
+    <div class="orb-burst" aria-hidden="true"></div>
   </div>
   <script src="app.js"></script>
 </body>
