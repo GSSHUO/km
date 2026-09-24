@@ -184,7 +184,17 @@ html, body {
 .login-submit:disabled { opacity: 0.45; cursor: default; }
 .login-error { font-size: 10.5px; color: #fca5a5; min-height: 14px; text-align: center; line-height: 1.4; }
 
-/* ---------- ball mode (docked to the screen edge) ---------- */
+/* ---------- EdgeOrb: 贴边吸附球（玻璃拟态 × 汤圆系） ---------- */
+/* 可调参数：主题色 / 球体尺寸 / 光晕强度 / 动画时长。
+   注意：--orb-size 是视觉层尺寸，窗口尺寸由 Rust 侧 BALL_SIZE 决定，两者需一致。 */
+:root {
+  --orb-size: 60px;
+  --orb-theme: #ffc9d9;            /* 奶油粉（主） */
+  --orb-theme-2: #bcd8ff;          /* 奶油蓝（副） */
+  --orb-glow: 0.5;                 /* 光晕强度 0~1 */
+  --orb-anim: 300ms;               /* 吸附 / 展开弹性时长 */
+  --orb-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 .ball { display: none; }
 .card { animation: card-in 0.18s ease; }
 @keyframes card-in {
@@ -194,42 +204,116 @@ html, body {
 body.ball-mode .card { display: none; }
 body.ball-mode .ball {
   position: relative;
-  width: 72px; height: 72px;
+  width: var(--orb-size); height: var(--orb-size);
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(22, 22, 32, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.95);
+  /* 磨砂玻璃：奶油渐变底 + 高斯模糊透出后景 */
+  background: linear-gradient(135deg,
+    rgba(255, 227, 236, 0.18), rgba(227, 240, 255, 0.10));
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  /* 发光全部做在窗口内（窗口与球等大，外发光会被裁剪）：
+     1px 折射内描边 + 顶部内高光 + 底部奶油蓝反光 + 内圈主题色柔光 */
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
+    inset 0 1px 2px rgba(255, 255, 255, 0.35),
+    inset 0 -8px 14px rgba(188, 216, 255, calc(0.16 + 0.2 * var(--orb-glow))),
+    inset 0 0 18px rgba(255, 201, 217, calc(0.3 * var(--orb-glow)));
   cursor: pointer;
-  animation: ball-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.15s ease;
+  animation: orb-in var(--orb-anim) var(--orb-spring);
+  will-change: transform;
 }
-@keyframes ball-in {
+/* 吸附瞬间：弹性过冲回弹（啪嗒感） */
+@keyframes orb-in {
   from { opacity: 0; transform: scale(0.55); }
   to { opacity: 1; transform: scale(1); }
 }
-.ball svg {
-  position: absolute; inset: 5px;
-  width: 62px; height: 62px;
+/* 顶部 30% 弧形高光，让球体圆鼓鼓 */
+.ball::before {
+  content: ""; position: absolute; top: 7%; left: 50%;
+  width: 42%; height: 15%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+    rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+/* 呼吸光环：4s 循环起伏 */
+.ball::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%,
+    rgba(255, 214, 228, calc(0.12 + 0.35 * var(--orb-glow))),
+    rgba(255, 214, 228, 0) 72%);
+  animation: orb-halo 4s ease-in-out infinite;
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+@keyframes orb-halo {
+  0%, 100% { opacity: 0.35; transform: scale(0.96); }
+  50% { opacity: 0.85; transform: scale(1); }
+}
+/* 游离态呼吸浮动（延迟到入场动画结束后接管 transform） */
+.orb-body {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  animation: orb-breathe 4s ease-in-out calc(var(--orb-anim) + 40ms) infinite;
+  will-change: transform;
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+/* 贴合反馈：吸附完成时一圈 1px 亮边沿球缘扫过后熄灭；Hover 时常亮微光 */
+.orb-fx {
+  position: absolute; inset: 0; border-radius: 50%;
+  opacity: 0;
+  background: conic-gradient(from 230deg,
+    transparent 0deg, rgba(255, 255, 255, 0.95) 18deg, transparent 42deg);
+  -webkit-mask: radial-gradient(farthest-side,
+    transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side,
+    transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+  transition: opacity 0.2s ease;
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+body.ball-mode .orb-fx {
+  animation: orb-sweep 0.55s ease-out calc(var(--orb-anim) - 60ms);
+}
+@keyframes orb-sweep {
+  0% { opacity: 0; transform: rotate(0deg); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(160deg); }
+}
+/* Hover 光晕增强 / 按下回缩 */
+.ball:hover { transform: scale(1.06); }
+.ball:hover .orb-fx { opacity: 0.35; }
+.ball:active { transform: scale(0.94); transition-duration: 0.08s; }
+.orb-body svg {
+  position: absolute; inset: 4px;
+  width: calc(var(--orb-size) - 8px); height: calc(var(--orb-size) - 8px);
   transform: rotate(-90deg);
 }
-.ball .track {
+.orb-body .track {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.14);
-  stroke-width: 5;
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 6;
 }
-.ball .bar {
+.orb-body .bar {
   fill: none;
   stroke: #34d399;
-  stroke-width: 5;
+  stroke-width: 6;
   stroke-linecap: round;
   stroke-dasharray: 188.5;
   stroke-dashoffset: 188.5;
   transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s;
 }
-.ball .pct {
+/* 主信息：13px 半粗体居中，与球壁留 5px+ 安全边距 */
+.orb-body .pct {
   position: relative;
-  font-size: 12px; font-weight: 700;
+  font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.4px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);

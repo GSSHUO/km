@@ -16,7 +16,7 @@ const CARD_WIDTH: i32 = 328;
 const CARD_HEIGHT: i32 = 224;
 /// Ball-mode diameter (logical px) and edge-proximity thresholds (physical
 /// px). ENTER must stay well under EXIT so the snap itself never re-triggers.
-const BALL_SIZE: f64 = 72.0;
+const BALL_SIZE: f64 = 60.0;
 const EDGE_ENTER_GAP: i32 = 28;
 const EDGE_EXIT_GAP: i32 = 48;
 
@@ -87,20 +87,25 @@ fn monitor_left(window: &tauri::WebviewWindow) -> Option<i32> {
 }
 
 /// Smoothly shrink/grow the window between two geometries (x, y, w, h in
-/// physical px) over ~180 ms with an ease-out curve, so docking to / from
-/// ball mode reads as a transition instead of a jump cut.
+/// physical px) with an ease-out-back (spring) curve — the overshoot gives
+/// the "magnetically sucked onto the edge" snap feel. Dock-in uses 300 ms,
+/// expand-out 260 ms. Pure visual feedback; trigger logic is unchanged.
 fn animate_window_geom(
     window: &tauri::WebviewWindow,
     from: (i32, i32, i32, i32),
     to: (i32, i32, i32, i32),
+    duration_ms: u64,
 ) {
     let w = window.clone();
     std::thread::spawn(move || {
-        const STEPS: i32 = 9;
-        for i in 1..=STEPS {
-            let t = i as f64 / STEPS as f64;
-            let t = 1.0 - (1.0 - t).powi(3); // ease-out cubic
-            let lerp = |a: i32, b: i32| (a as f64 + (b - a) as f64 * t).round() as i32;
+        let steps = (duration_ms / 20).max(1) as i32;
+        // easeOutBack: overshoots the target once, then settles (spring).
+        let c1: f64 = 1.70158;
+        let c3: f64 = c1 + 1.0;
+        for i in 1..=steps {
+            let t = i as f64 / steps as f64;
+            let e = 1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2);
+            let lerp = |a: i32, b: i32| (a as f64 + (b - a) as f64 * e).round() as i32;
             let _ = w.set_size(tauri::PhysicalSize::new(
                 lerp(from.2, to.2).max(1) as u32,
                 lerp(from.3, to.3).max(1) as u32,
@@ -136,6 +141,7 @@ fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
             window,
             (pos.x, pos.y, size.width as i32, size.height as i32),
             (x, pos.y, ball, ball),
+            300, // dock-in: spring snap
         );
     } else {
         let _ = window.set_size(tauri::PhysicalSize::new(ball as u32, ball as u32));
@@ -166,6 +172,7 @@ fn exit_ball(window: &tauri::WebviewWindow) {
                 window,
                 (pos.x, pos.y, size.width as i32, size.height as i32),
                 (x, pos.y, card_w, card_h),
+                260, // expand-out: reverse spring
             );
             return;
         }

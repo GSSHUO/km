@@ -155,12 +155,17 @@
     </div>
   </div>
 
+  <!-- EdgeOrb: glass tang-yuan orb. Layers: rim-sweep FX (back) → breathing
+       body with the progress ring + percentage (content, unchanged). -->
   <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
-    <svg viewBox="0 0 72 72">
-      <circle class="track" cx="36" cy="36" r="30"/>
-      <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
-    </svg>
-    <span class="pct" id="pct-ball">–</span>
+    <div class="orb-fx" aria-hidden="true"></div>
+    <div class="orb-body">
+      <svg viewBox="0 0 72 72">
+        <circle class="track" cx="36" cy="36" r="30"/>
+        <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
+      </svg>
+      <span class="pct" id="pct-ball">–</span>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>
