@@ -898,10 +898,12 @@ fn main() {
                 })
             };
             let primary = window.primary_monitor().ok().flatten();
+            // 默认位与右边缘保持 48px：必须落在缩球触发区（28px）之外，
+            // 否则启动后第一次轻推就会被误判为「拖向边缘」。
             let fallback = primary.as_ref().map(|m| {
                 let size = m.size();
                 let origin = m.position();
-                (origin.x + size.width as i32 - CARD_WIDTH - 16, origin.y + 32)
+                (origin.x + size.width as i32 - CARD_WIDTH - 48, origin.y + 32)
             });
             let pos = load_saved_position()
                 .filter(|(x, y)| monitors.is_empty() || on_screen(*x, *y))
@@ -914,6 +916,13 @@ fn main() {
             // real debounce: Moved events stop the moment the drag ends, so
             // the edge check is scheduled 200 ms out and only the latest
             // schedule is allowed to run.
+            //
+            // Launch grace: macOS fires Moved events on show/bring-to-front,
+            // and the restored position may sit inside the dock-trigger zone
+            // (an edge-hugging saved spot is legitimate). Suppress auto-dock
+            // briefly so the app never launches straight into a ball.
+            *BALL_SUPPRESS_UNTIL.lock().unwrap() =
+                Some(Instant::now() + Duration::from_millis(1200));
             let app_handle = app.handle().clone();
             window.on_window_event(move |event| match event {
                 WindowEvent::Moved(_) => {
