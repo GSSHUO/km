@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
 };
@@ -49,6 +49,8 @@ fn save_position(x: i32, y: i32) {
 // restores the last CARD position.
 
 static BALL_MODE: Mutex<bool> = Mutex::new(false);
+/// Tray menu ids of the three orb themes (radio-style checkmarks).
+const THEME_MENU_IDS: [&str; 3] = ["theme-abyss", "theme-emerald", "theme-rainbow"];
 /// Which screen edge the ball is docked to (right or left).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DockEdge {
@@ -225,6 +227,44 @@ fn report_dom(state: String) {
 fn expand_card(window: tauri::WebviewWindow) {
     if in_ball_mode() {
         exit_ball(&window);
+    }
+}
+
+/// Double-clicking the card title docks the card to the NEAREST side edge as
+/// the orb — the same enter_ball path as edge-dragging, just programmatic.
+#[tauri::command]
+fn dock_ball(window: tauri::WebviewWindow) {
+    if in_ball_mode() {
+        return;
+    }
+    let edge = match (
+        window.outer_position(),
+        window.outer_size(),
+        window.current_monitor(),
+    ) {
+        (Ok(pos), Ok(size), Ok(Some(m))) => {
+            let center_x = pos.x + size.width as i32 / 2;
+            if center_x < m.position().x + m.size().width as i32 / 2 {
+                DockEdge::Left
+            } else {
+                DockEdge::Right
+            }
+        }
+        _ => DockEdge::Right,
+    };
+    enter_ball(&window, edge);
+}
+
+/// Keep the tray "悬浮球主题" checkmarks in sync with the frontend's
+/// persisted choice (e.g. after a relaunch restoring a non-default theme).
+#[tauri::command]
+fn sync_theme_menu(app: tauri::AppHandle, name: String) {
+    let Some(menu) = app.menu() else { return };
+    let target = format!("theme-{name}");
+    for id in THEME_MENU_IDS {
+        if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
+            let _ = item.set_checked(id == target);
+        }
     }
 }
 
@@ -977,9 +1017,20 @@ fn main() {
 
             // Tray: left click toggles the card; right click opens menu.
             let refresh_item = MenuItemBuilder::with_id("refresh", "立即刷新").build(app)?;
+            // 悬浮球主题：单选勾选，切换后 eval 直推前端（本地持久化在前端）。
+            let theme_abyss = CheckMenuItemBuilder::with_id("theme-abyss", "深渊紫黑（默认）")
+                .checked(true)
+                .build(app)?;
+            let theme_emerald = CheckMenuItemBuilder::with_id("theme-emerald", "翡翠庭园")
+                .build(app)?;
+            let theme_rainbow = CheckMenuItemBuilder::with_id("theme-rainbow", "独角兽彩虹")
+                .build(app)?;
+            let theme_menu = SubmenuBuilder::with_id(app, "theme", "悬浮球主题")
+                .items(&[&theme_abyss, &theme_emerald, &theme_rainbow])
+                .build()?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&refresh_item, &quit_item])
+                .items(&[&refresh_item, &theme_menu, &quit_item])
                 .build()?;
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
             TrayIconBuilder::with_id("main-tray")
@@ -993,6 +1044,21 @@ fn main() {
                         // Poke the card to re-poll immediately.
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.eval("window.__kqbPoll && window.__kqbPoll()");
+                        }
+                    }
+                    "theme-abyss" | "theme-emerald" | "theme-rainbow" => {
+                        if let Some(menu) = app.menu() {
+                            for id in THEME_MENU_IDS {
+                                if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
+                                    let _ = item.set_checked(id == event.id().as_ref());
+                                }
+                            }
+                        }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let theme = event.id().as_ref().trim_start_matches("theme-");
+                            let _ = w.eval(&format!(
+                                "window.__kqbSetTheme && window.__kqbSetTheme('{theme}')"
+                            ));
                         }
                     }
                     "quit" => app.exit(0),
@@ -1157,6 +1223,8 @@ fn main() {
             retry_web_login,
             close_web_login,
             expand_card,
+            dock_ball,
+            sync_theme_menu,
             report_dom,
             get_profile,
         ])

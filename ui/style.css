@@ -184,17 +184,16 @@ html, body {
 .login-submit:disabled { opacity: 0.45; cursor: default; }
 .login-error { font-size: 10.5px; color: #fca5a5; min-height: 14px; text-align: center; line-height: 1.4; }
 
-/* ---------- Edge Dock Orb: 边缘吸附浮珠（Aurora 极光玻璃珠） ---------- */
-/* 设计要点：无圈线描边——边缘靠柔和的内外光衰减定义；进度环统一为
-   极光渐变（青 → 紫 → 粉），不再按用量变色；粒子与星点仅为装饰层，
+/* ---------- Edge Dock Orb: 边缘吸附浮珠（主题制 · 三套可切换） ---------- */
+/* 设计要点：无圈线描边——边缘靠柔和的内外光衰减定义；进度环统一为主题
+   渐变（不再按用量变色，卡片三环仍按用量着色）；粒子与星点仅为装饰层，
    全部走 transform / opacity 合成层动画，不改任何交互与信息。
-   可调参数：极光三色 / 球体尺寸 / 光晕强度 / 动画时长。
+   主题由 body 上的 theme-* class 切换（app.js 负责加 class 与持久化）：
+   默认深渊紫黑（基础样式即 abyss 配色）、翡翠庭园、独角兽彩虹。
+   可调参数：球体尺寸 / 光晕强度 / 动画时长。
    注意：--orb-size 是视觉层尺寸，窗口尺寸由 Rust 侧 BALL_SIZE 决定，两者需一致。 */
 :root {
   --orb-size: 60px;
-  --orb-cyan: #2dd4ee;             /* 极光青 */
-  --orb-violet: #8b8cf8;           /* 极光紫 */
-  --orb-pink: #f472b6;             /* 极光粉 */
   --orb-glow: 0.6;                 /* 光晕强度 0~1 */
   --orb-anim: 240ms;               /* 吸附 / 展开弹性时长 */
   --orb-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -212,21 +211,21 @@ body.ball-mode .ball {
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
   color: rgba(255, 255, 255, 0.95);
-  /* 磨砂芯 Frost Core：极光三色渐变底叠深色托底（色彩更饱和、
-     跨壁纸稳定）+ 高斯模糊透出后景 */
+  /* 磨砂芯 Frost Core（默认·深渊紫黑）：近纯黑底叠深紫氛围渐变
+     + 高斯模糊透出后景（三套主题共用 blur/saturate） */
   background: linear-gradient(140deg,
-    rgba(45, 212, 238, 0.34), rgba(139, 140, 248, 0.32) 48%,
-    rgba(244, 114, 182, 0.34)), rgba(22, 16, 46, 0.38);
+    rgba(88, 28, 135, 0.34), rgba(9, 7, 16, 0.66) 48%,
+    rgba(34, 20, 60, 0.5)), rgba(4, 3, 9, 0.72);
   backdrop-filter: blur(18px) saturate(190%);
   -webkit-backdrop-filter: blur(18px) saturate(190%);
   /* 无圈线：边缘用柔和内光衰减定义（窗口与球等大，外发光会被裁剪）。
-     顶部受光 + 底部青色反弹光 + 左右粉紫环境光 + 极淡边缘界定 */
+     顶部受光 + 底部反弹光 + 左右环境光 + 极淡边缘界定 */
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.45),
-    inset 0 -7px 12px rgba(45, 212, 238, calc(0.20 + 0.14 * var(--orb-glow))),
-    inset 5px 0 12px rgba(244, 114, 182, calc(0.14 + 0.12 * var(--orb-glow))),
-    inset -5px 0 12px rgba(139, 140, 248, calc(0.16 + 0.12 * var(--orb-glow))),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+    inset 0 1px 2px rgba(255, 255, 255, 0.32),
+    inset 0 -7px 12px rgba(74, 222, 128, calc(0.12 + 0.12 * var(--orb-glow))),
+    inset 5px 0 12px rgba(139, 92, 246, calc(0.20 + 0.12 * var(--orb-glow))),
+    inset -5px 0 12px rgba(192, 132, 252, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(216, 180, 254, 0.12);
   cursor: pointer;
   transition: transform 0.15s ease, filter 0.15s ease;
   animation: orb-in var(--orb-anim) var(--orb-spring);
@@ -237,7 +236,7 @@ body.ball-mode .ball {
   from { opacity: 0; transform: scale(0.5); }
   to { opacity: 1; transform: scale(1); }
 }
-/* 顶部柔和镜面高光，让球体圆鼓鼓（无硬边弧线） */
+/* 顶部柔和镜面高光，让球体圆鼓鼓（无硬边弧线，三套主题共用） */
 .ball::before {
   content: ""; position: absolute; top: 6%; left: 50%;
   width: 46%; height: 18%;
@@ -247,14 +246,13 @@ body.ball-mode .ball {
     rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 70%);
   pointer-events: none;
 }
-/* 呼吸辉光 Rim Glow（内）：3.1s 循环起伏，透明度 0.55 ↔ 1，
-   中心偏紫而非死白，保持色彩感 */
+/* 呼吸辉光 Rim Glow（内）：3.1s 循环起伏，透明度 0.55 ↔ 1（主题色覆盖背景） */
 .ball::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%;
   background: radial-gradient(circle at 50% 44%,
-    rgba(139, 140, 248, calc(0.18 + 0.24 * var(--orb-glow))),
-    rgba(45, 212, 238, calc(0.08 + 0.14 * var(--orb-glow))) 58%,
-    rgba(45, 212, 238, 0) 76%);
+    rgba(139, 92, 246, calc(0.20 + 0.20 * var(--orb-glow))),
+    rgba(74, 222, 128, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(74, 222, 128, 0) 76%);
   animation: orb-halo 3.1s ease-in-out infinite;
   will-change: opacity, transform;
   pointer-events: none;
@@ -264,13 +262,13 @@ body.ball-mode .ball {
   50% { opacity: 1; transform: scale(1); }
 }
 /* 极光流转底光：conic 渐变慢旋，径向 mask 让中心淡、边缘亮，
-   形成「活的极光」而非静止色块（无圈线，纯光晕） */
+   形成「活的极光」而非静止色块（无圈线，纯光晕；主题色覆盖背景） */
 .orb-swirl {
   position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(from 0deg,
-    rgba(45, 212, 238, 0), rgba(45, 212, 238, 0.55) 70deg,
-    rgba(139, 140, 248, 0.5) 165deg, rgba(244, 114, 182, 0.5) 255deg,
-    rgba(45, 212, 238, 0) 360deg);
+    rgba(74, 222, 128, 0), rgba(74, 222, 128, 0.42) 70deg,
+    rgba(139, 92, 246, 0.52) 165deg, rgba(217, 70, 239, 0.46) 255deg,
+    rgba(74, 222, 128, 0) 360deg);
   -webkit-mask: radial-gradient(farthest-side,
     rgba(0, 0, 0, 0.22), #000 80%);
   mask: radial-gradient(farthest-side,
@@ -282,7 +280,7 @@ body.ball-mode .ball {
   pointer-events: none;
 }
 @keyframes orb-spin { to { transform: rotate(360deg); } }
-/* 漂浮微粒：5 枚极光色光点缓慢上浮 + 闪烁，错开周期与相位 */
+/* 漂浮微粒：5 枚主题色光点缓慢上浮 + 闪烁，错开周期与相位（颜色按主题覆盖） */
 .orb-particles { position: absolute; inset: 0; pointer-events: none; }
 .orb-particles i {
   position: absolute; border-radius: 50%; opacity: 0;
@@ -290,11 +288,11 @@ body.ball-mode .ball {
   animation: orb-float 4s ease-in-out infinite;
   will-change: transform, opacity;
 }
-.orb-particles .p1 { width: 3.5px; height: 3.5px; left: 24%; top: 62%; color: #7ef0ff; animation-duration: 3.4s; }
+.orb-particles .p1 { width: 3.5px; height: 3.5px; left: 24%; top: 62%; color: #86efac; animation-duration: 3.4s; }
 .orb-particles .p2 { width: 2.5px; height: 2.5px; left: 58%; top: 70%; color: #c4b5fd; animation-duration: 4.2s; animation-delay: 0.8s; }
 .orb-particles .p3 { width: 3px; height: 3px; left: 44%; top: 56%; color: #ffffff; animation-duration: 3.0s; animation-delay: 1.6s; }
-.orb-particles .p4 { width: 2.5px; height: 2.5px; left: 68%; top: 46%; color: #f9a8d4; animation-duration: 4.8s; animation-delay: 0.4s; }
-.orb-particles .p5 { width: 3.5px; height: 3.5px; left: 32%; top: 40%; color: #a5f3fc; animation-duration: 5.2s; animation-delay: 2.2s; }
+.orb-particles .p4 { width: 2.5px; height: 2.5px; left: 68%; top: 46%; color: #a78bfa; animation-duration: 4.8s; animation-delay: 0.4s; }
+.orb-particles .p5 { width: 3.5px; height: 3.5px; left: 32%; top: 40%; color: #4ade80; animation-duration: 5.2s; animation-delay: 2.2s; }
 @keyframes orb-float {
   0% { transform: translate3d(0, 5px, 0) scale(0.6); opacity: 0; }
   35% { opacity: 1; }
@@ -302,7 +300,7 @@ body.ball-mode .ball {
   100% { transform: translate3d(2px, -12px, 0) scale(1); opacity: 0; }
 }
 /* 环绕星点：一枚带辉光的小星沿球内缘缓慢环游（轨道内收到 22px 半径，
-   辉光 6px 也不会被窗口边缘裁切） */
+   辉光 6px 也不会被窗口边缘裁切；颜色按主题覆盖） */
 .orb-orbit {
   position: absolute; inset: 8px; border-radius: 50%;
   animation: orb-spin 9s linear infinite reverse;
@@ -312,15 +310,15 @@ body.ball-mode .ball {
 .orb-orbit i {
   position: absolute; top: 0; left: 50%; margin-left: -1.5px;
   width: 3px; height: 3px; border-radius: 50%;
-  background: radial-gradient(circle, #ffffff, rgba(45, 212, 238, 0.9) 60%, transparent 75%);
-  box-shadow: 0 0 6px 1px rgba(45, 212, 238, 0.85);
+  background: radial-gradient(circle, #ffffff, rgba(134, 239, 172, 0.9) 60%, transparent 75%);
+  box-shadow: 0 0 6px 1px rgba(74, 222, 128, 0.85);
 }
-/* 入场光爆：吸附完成时一团极光柔光自球心扩散熄灭（取代旧扫光圈线） */
+/* 入场光爆：吸附完成时一团柔光自球心扩散熄灭（主题色覆盖背景） */
 .orb-burst {
   position: absolute; inset: 0; border-radius: 50%;
   background: radial-gradient(circle,
-    rgba(255, 255, 255, 0.85), rgba(139, 140, 248, 0.45) 45%,
-    rgba(45, 212, 238, 0) 70%);
+    rgba(255, 255, 255, 0.85), rgba(139, 92, 246, 0.45) 45%,
+    rgba(74, 222, 128, 0) 70%);
   opacity: 0; transform: scale(0.6);
   will-change: opacity, transform;
   pointer-events: none;
@@ -333,7 +331,7 @@ body.ball-mode .orb-burst {
   20% { opacity: 0.8; }
   100% { opacity: 0; transform: scale(1.12); }
 }
-/* Hover：150ms 内整体提亮 + 极光增强一档。窗口与球等大，放大球体必然
+/* Hover：150ms 内整体提亮 + 底光增强一档。窗口与球等大，放大球体必然
    被窗口裁剪，故 Hover 不做整体缩放，用亮度与光晕反馈；
    按下 80ms 收敛到 0.96（缩小不会越界） */
 .ball:hover { filter: brightness(1.12); }
@@ -361,16 +359,16 @@ body.ball-mode .orb-burst {
   stroke: rgba(255, 255, 255, 0.11);
   stroke-width: 6;
 }
-/* 进度弧：统一极光渐变（HTML 内联 orbGrad），带同色柔光；颜色固定，
+/* 进度弧：统一主题渐变（HTML 内联 grad-*），带同色柔光；颜色固定，
    不随用量变化（app.js 对球体环不再改写 stroke） */
 .orb-body .bar {
   fill: none;
-  stroke: url(#orbGrad);
+  stroke: url(#grad-abyss);
   stroke-width: 6;
   stroke-linecap: round;
   stroke-dasharray: 188.5;
   stroke-dashoffset: 188.5;
-  filter: drop-shadow(0 0 3px rgba(139, 140, 248, 0.85));
+  filter: drop-shadow(0 0 3px rgba(139, 92, 246, 0.85));
   transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* 主信息：13px 半粗体居中，与球壁留 5px+ 安全边距 */
@@ -379,9 +377,115 @@ body.ball-mode .orb-burst {
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.4px;
-  text-shadow: 0 1px 6px rgba(16, 10, 40, 0.6),
-    0 0 10px rgba(139, 140, 248, 0.35);
+  color: #f3e8ff;
+  text-shadow: 0 1px 6px rgba(8, 4, 16, 0.8),
+    0 0 10px rgba(139, 92, 246, 0.5);
 }
+
+/* ============ 主题 2 · 翡翠庭园（丰富版：绿青蓝 + 蜜金点缀） ============ */
+body.theme-emerald.ball-mode .ball,
+body.theme-emerald .ball {
+  background: linear-gradient(140deg,
+    rgba(163, 230, 53, 0.22), rgba(14, 62, 40, 0.44) 40%,
+    rgba(20, 116, 112, 0.32) 72%, rgba(96, 165, 250, 0.20)),
+    rgba(4, 13, 9, 0.56);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    inset 0 -7px 12px rgba(45, 212, 191, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 5px 0 12px rgba(163, 230, 53, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset -5px 0 12px rgba(96, 165, 250, calc(0.14 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+body.theme-emerald .ball::after {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(52, 211, 153, calc(0.18 + 0.18 * var(--orb-glow))),
+    rgba(96, 165, 250, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(96, 165, 250, 0) 76%);
+}
+body.theme-emerald .orb-swirl {
+  background: conic-gradient(from 0deg,
+    rgba(163,230,53,0), rgba(190,242,100,0.48) 60deg,
+    rgba(52,211,153,0.5) 150deg, rgba(45,212,191,0.46) 225deg,
+    rgba(96,165,250,0.44) 300deg, rgba(163,230,53,0) 360deg);
+}
+body.theme-emerald .orb-particles .p1 { color: #d9f99d; }
+body.theme-emerald .orb-particles .p2 { color: #86efac; }
+body.theme-emerald .orb-particles .p3 { color: #ffffff; }
+body.theme-emerald .orb-particles .p4 { color: #7dd3fc; }
+body.theme-emerald .orb-particles .p5 { color: #fde68a; }
+body.theme-emerald .orb-orbit i {
+  background: radial-gradient(circle, #ffffff, rgba(253, 230, 138, 0.9) 60%, transparent 75%);
+  box-shadow: 0 0 6px 1px rgba(252, 211, 77, 0.85);
+}
+body.theme-emerald .orb-burst {
+  background: radial-gradient(circle,
+    rgba(255, 255, 255, 0.85), rgba(52, 211, 153, 0.45) 45%,
+    rgba(96, 165, 250, 0) 70%);
+}
+body.theme-emerald .orb-body .bar {
+  stroke: url(#grad-emerald);
+  filter: drop-shadow(0 0 3px rgba(45, 212, 191, 0.8));
+}
+body.theme-emerald .orb-body .pct {
+  color: #f0fdf4;
+  text-shadow: 0 1px 6px rgba(3, 14, 6, 0.7),
+    0 0 10px rgba(45, 212, 191, 0.4);
+}
+
+/* ============ 主题 3 · 独角兽彩虹（五色渐变） ============ */
+body.theme-rainbow.ball-mode .ball,
+body.theme-rainbow .ball {
+  background:
+    linear-gradient(140deg,
+      rgba(244, 114, 182, 0.18), rgba(251, 191, 36, 0.16) 30%,
+      rgba(52, 211, 153, 0.16) 55%, rgba(56, 189, 248, 0.18) 75%,
+      rgba(167, 139, 250, 0.18)),
+    rgba(26, 19, 42, 0.48);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.45),
+    inset 0 -7px 12px rgba(56, 189, 248, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 5px 0 12px rgba(244, 114, 182, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset -5px 0 12px rgba(167, 139, 250, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+body.theme-rainbow .ball::after {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(167, 139, 250, calc(0.16 + 0.16 * var(--orb-glow))),
+    rgba(56, 189, 248, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(56, 189, 248, 0) 76%);
+}
+body.theme-rainbow .orb-swirl {
+  background: conic-gradient(from 0deg,
+    rgba(244,114,182,0), rgba(251,113,133,0.48) 50deg,
+    rgba(251,191,36,0.46) 110deg, rgba(52,211,153,0.46) 180deg,
+    rgba(56,189,248,0.46) 250deg, rgba(167,139,250,0.48) 310deg,
+    rgba(244,114,182,0) 360deg);
+}
+body.theme-rainbow .orb-particles .p1 { color: #fda4af; }
+body.theme-rainbow .orb-particles .p2 { color: #fde68a; }
+body.theme-rainbow .orb-particles .p3 { color: #86efac; }
+body.theme-rainbow .orb-particles .p4 { color: #7dd3fc; }
+body.theme-rainbow .orb-particles .p5 { color: #c4b5fd; }
+body.theme-rainbow .orb-orbit i {
+  background: radial-gradient(circle, #ffffff, rgba(253, 224, 71, 0.9) 60%, transparent 75%);
+  box-shadow: 0 0 6px 1px rgba(244, 114, 182, 0.8);
+}
+body.theme-rainbow .orb-burst {
+  background: radial-gradient(circle,
+    rgba(255, 255, 255, 0.9), rgba(251, 191, 36, 0.4) 40%,
+    rgba(56, 189, 248, 0) 70%);
+}
+body.theme-rainbow .orb-body .bar {
+  stroke: url(#grad-rainbow);
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.8));
+}
+body.theme-rainbow .orb-body .pct {
+  color: #ffffff;
+  text-shadow: 0 1px 6px rgba(20, 10, 30, 0.7),
+    0 0 12px rgba(244, 114, 182, 0.4),
+    0 0 12px rgba(56, 189, 248, 0.35);
+}
+
 /* 高对比度模式：关闭辉光 / 粒子 / 模糊，保留清晰描边与信息可读性 */
 @media (prefers-contrast: more) {
   body.ball-mode .ball {
@@ -393,7 +497,7 @@ body.ball-mode .orb-burst {
   .orb-swirl, .orb-particles, .orb-orbit, .orb-burst,
   body.ball-mode .ball::after { display: none; }
 }
-/* 减弱动效偏好：停止所有循环动画，保留静态极光玻璃质感 */
+/* 减弱动效偏好：停止所有循环动画，保留静态玻璃质感 */
 @media (prefers-reduced-motion: reduce) {
   .orb-swirl, .orb-orbit, .orb-particles i,
   .orb-body, body.ball-mode .ball::after { animation: none; }

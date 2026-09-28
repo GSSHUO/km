@@ -460,6 +460,27 @@ window.__kqbBallMode = (on) => {
 };
 window.__TAURI__.event.listen("ball-mode", (e) => window.__kqbBallMode(!!e.payload));
 
+// --- orb themes (悬浮球主题：深渊紫黑 / 翡翠庭园 / 独角兽彩虹) ---
+
+const ORB_THEMES = ["abyss", "emerald", "rainbow"];
+
+// 应用主题：切换 body 上的 theme-* class 并持久化到 localStorage。
+// 托盘菜单通过 __kqbSetTheme 直接调用（eval 通道，事件可能丢）。
+function applyOrbTheme(name) {
+  if (!ORB_THEMES.includes(name)) name = "abyss";
+  ORB_THEMES.forEach((t) => document.body.classList.remove("theme-" + t));
+  document.body.classList.add("theme-" + name);
+  try { localStorage.setItem("kqb-orb-theme", name); } catch (e) { /* private mode */ }
+  return name;
+}
+window.__kqbSetTheme = applyOrbTheme;
+
+// 启动时恢复上次主题（默认深渊紫黑），并回写托盘勾选态（重启后菜单同步）。
+let savedOrbTheme = null;
+try { savedOrbTheme = localStorage.getItem("kqb-orb-theme"); } catch (e) { /* ignore */ }
+const activeOrbTheme = applyOrbTheme(savedOrbTheme);
+invoke("sync_theme_menu", { name: activeOrbTheme }).catch(() => {});
+
 // Ball gestures: a plain click expands the card; a real drag moves the ball
 // (dropping it away from the edge also expands, handled natively on Moved).
 const ballEl = document.getElementById("ball");
@@ -488,6 +509,11 @@ window.addEventListener("error", (e) => {
   const footer = document.getElementById("footer");
   footer.textContent = "JS: " + e.message;
   footer.style.opacity = "0.9";
+});
+
+// 双击标题「Kimi 额度」：展开态下自动吸附到最近的屏幕边缘缩成球。
+document.querySelector(".title").addEventListener("dblclick", () => {
+  invoke("dock_ball").catch(() => {});
 });
 
 poll();

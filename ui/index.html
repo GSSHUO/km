@@ -155,10 +155,12 @@
     </div>
   </div>
 
-  <!-- Edge Dock Orb（边缘吸附浮珠）· Aurora 极光玻璃珠。
-       层序（后 → 前）：orb-swirl 极光流转底光 → orb-particles 漂浮微粒 →
-       orb-orbit 环绕星点 → orb-body 进度环 + 百分比（内容不变，id 不变）→
-       orb-burst 入场光爆（一次性）。无任何圈线描边层。 -->
+  <!-- Edge Dock Orb（边缘吸附浮珠）· 三套可切换主题：深渊紫黑（默认）/
+       翡翠庭园 / 独角兽彩虹。主题由 body 上的 theme-* class 切换，
+       配色定义在 style.css 的 theme-* 段落。层序（后 → 前）：
+       orb-swirl 极光流转底光 → orb-particles 漂浮微粒 → orb-orbit 环绕星点
+       → orb-body 进度环 + 百分比（内容不变，id 不变）→ orb-burst 入场光爆。
+       无任何圈线描边层。 -->
   <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
     <div class="orb-swirl" aria-hidden="true"></div>
     <div class="orb-particles" aria-hidden="true">
@@ -168,10 +170,24 @@
     <div class="orb-body">
       <svg viewBox="0 0 72 72">
         <defs>
-          <linearGradient id="orbGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#2dd4ee"/>
-            <stop offset="52%" stop-color="#8b8cf8"/>
-            <stop offset="100%" stop-color="#f472b6"/>
+          <linearGradient id="grad-abyss" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#4ade80"/>
+            <stop offset="35%" stop-color="#22d3ee"/>
+            <stop offset="70%" stop-color="#8b5cf6"/>
+            <stop offset="100%" stop-color="#d946ef"/>
+          </linearGradient>
+          <linearGradient id="grad-emerald" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#bef264"/>
+            <stop offset="38%" stop-color="#34d399"/>
+            <stop offset="70%" stop-color="#2dd4bf"/>
+            <stop offset="100%" stop-color="#60a5fa"/>
+          </linearGradient>
+          <linearGradient id="grad-rainbow" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#fb7185"/>
+            <stop offset="25%" stop-color="#fbbf24"/>
+            <stop offset="50%" stop-color="#34d399"/>
+            <stop offset="75%" stop-color="#38bdf8"/>
+            <stop offset="100%" stop-color="#a78bfa"/>
           </linearGradient>
         </defs>
         <circle class="track" cx="36" cy="36" r="30"/>
