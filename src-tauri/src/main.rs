@@ -51,6 +51,8 @@ fn save_position(x: i32, y: i32) {
 static BALL_MODE: Mutex<bool> = Mutex::new(false);
 /// Tray menu ids of the three orb themes (radio-style checkmarks).
 const THEME_MENU_IDS: [&str; 3] = ["theme-abyss", "theme-emerald", "theme-rainbow"];
+/// Tray menu ids of the two orb metrics (radio-style checkmarks).
+const METRIC_MENU_IDS: [&str; 2] = ["metric-total", "metric-5h"];
 /// Which screen edge the ball is docked to (right or left).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DockEdge {
@@ -255,15 +257,22 @@ fn dock_ball(window: tauri::WebviewWindow) {
     enter_ball(&window, edge);
 }
 
-/// Keep the tray "悬浮球主题" checkmarks in sync with the frontend's
-/// persisted choice (e.g. after a relaunch restoring a non-default theme).
+/// Keep the tray checkmarks (orb theme + metric) in sync with the
+/// frontend's persisted choices (e.g. after a relaunch restoring
+/// non-default selections).
 #[tauri::command]
-fn sync_theme_menu(app: tauri::AppHandle, name: String) {
+fn sync_menus(app: tauri::AppHandle, theme: String, metric: String) {
     let Some(menu) = app.menu() else { return };
-    let target = format!("theme-{name}");
+    let theme_target = format!("theme-{theme}");
     for id in THEME_MENU_IDS {
         if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
-            let _ = item.set_checked(id == target);
+            let _ = item.set_checked(id == theme_target);
+        }
+    }
+    let metric_target = format!("metric-{metric}");
+    for id in METRIC_MENU_IDS {
+        if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
+            let _ = item.set_checked(id == metric_target);
         }
     }
 }
@@ -1028,9 +1037,18 @@ fn main() {
             let theme_menu = SubmenuBuilder::with_id(app, "theme", "悬浮球主题")
                 .items(&[&theme_abyss, &theme_emerald, &theme_rainbow])
                 .build()?;
+            // 悬浮球显示口径：总量 / 5 小时窗口（单选勾选，eval 直推前端）。
+            let metric_total = CheckMenuItemBuilder::with_id("metric-total", "总量 · 月度额度")
+                .checked(true)
+                .build(app)?;
+            let metric_5h = CheckMenuItemBuilder::with_id("metric-5h", "5 小时窗口")
+                .build(app)?;
+            let metric_menu = SubmenuBuilder::with_id(app, "metric", "悬浮球显示")
+                .items(&[&metric_total, &metric_5h])
+                .build()?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&refresh_item, &theme_menu, &quit_item])
+                .items(&[&refresh_item, &theme_menu, &metric_menu, &quit_item])
                 .build()?;
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
             TrayIconBuilder::with_id("main-tray")
@@ -1058,6 +1076,21 @@ fn main() {
                             let theme = event.id().as_ref().trim_start_matches("theme-");
                             let _ = w.eval(&format!(
                                 "window.__kqbSetTheme && window.__kqbSetTheme('{theme}')"
+                            ));
+                        }
+                    }
+                    "metric-total" | "metric-5h" => {
+                        if let Some(menu) = app.menu() {
+                            for id in METRIC_MENU_IDS {
+                                if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
+                                    let _ = item.set_checked(id == event.id().as_ref());
+                                }
+                            }
+                        }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let metric = event.id().as_ref().trim_start_matches("metric-");
+                            let _ = w.eval(&format!(
+                                "window.__kqbSetMetric && window.__kqbSetMetric('{metric}')"
                             ));
                         }
                     }
@@ -1224,7 +1257,7 @@ fn main() {
             close_web_login,
             expand_card,
             dock_ball,
-            sync_theme_menu,
+            sync_menus,
             report_dom,
             get_profile,
         ])

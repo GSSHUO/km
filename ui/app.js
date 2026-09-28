@@ -56,6 +56,7 @@ function fmtUpdated(unixSecs) {
 }
 
 function render(payload) {
+  lastPayload = payload; // 供悬浮球口径切换后立即重绘（declared with the metric block）
   const dot = document.getElementById("statusDot");
   const rows = document.getElementById("rows");
   const errorBox = document.getElementById("errorBox");
@@ -81,7 +82,10 @@ function render(payload) {
   const sevenOff = seven.enabled === false;
 
   setRing("total", payload.total && payload.total.usedRatio);
-  setRing("ball", payload.total && payload.total.usedRatio);
+  // 球面进度按当前口径：总量（默认）或 5 小时窗口（未启用则置空）
+  setRing("ball", orbMetric === "5h"
+    ? (fiveOff ? null : five.usedRatio)
+    : payload.total && payload.total.usedRatio);
   setRing("5h", fiveOff ? null : five.usedRatio);
   setRing("7d", sevenOff ? null : seven.usedRatio);
   setRowDisabled("5h", fiveOff);
@@ -475,11 +479,30 @@ function applyOrbTheme(name) {
 }
 window.__kqbSetTheme = applyOrbTheme;
 
-// 启动时恢复上次主题（默认深渊紫黑），并回写托盘勾选态（重启后菜单同步）。
+// 启动时恢复上次主题（默认深渊紫黑）。
 let savedOrbTheme = null;
 try { savedOrbTheme = localStorage.getItem("kqb-orb-theme"); } catch (e) { /* ignore */ }
 const activeOrbTheme = applyOrbTheme(savedOrbTheme);
-invoke("sync_theme_menu", { name: activeOrbTheme }).catch(() => {});
+
+// --- orb metric (悬浮球显示口径：总量 / 5 小时窗口) ---
+
+const ORB_METRICS = ["total", "5h"];
+let lastPayload = null; // 最近一次 render 的原始数据，切口径时立即重绘球面
+
+function applyOrbMetric(metric) {
+  if (!ORB_METRICS.includes(metric)) metric = "total";
+  orbMetric = metric;
+  try { localStorage.setItem("kqb-orb-metric", metric); } catch (e) { /* ignore */ }
+  document.getElementById("ball").title =
+    (metric === "5h" ? "5 小时窗口用量" : "月度总量用量") + " — 点击展开";
+  if (lastPayload) render(lastPayload);
+}
+let orbMetric = "total";
+try { orbMetric = localStorage.getItem("kqb-orb-metric") || "total"; } catch (e) { /* ignore */ }
+window.__kqbSetMetric = applyOrbMetric;
+
+// 启动时把前端持久化的主题 + 口径回写托盘勾选态（重启后菜单同步）。
+invoke("sync_menus", { theme: activeOrbTheme, metric: orbMetric }).catch(() => {});
 
 // Ball gestures: a plain click expands the card; a real drag moves the ball
 // (dropping it away from the edge also expands, handled natively on Moved).
