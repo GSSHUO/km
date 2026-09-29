@@ -53,6 +53,25 @@ static BALL_MODE: Mutex<bool> = Mutex::new(false);
 const THEME_MENU_IDS: [&str; 3] = ["theme-abyss", "theme-emerald", "theme-rainbow"];
 /// Tray menu ids of the two orb metrics (radio-style checkmarks).
 const METRIC_MENU_IDS: [&str; 2] = ["metric-total", "metric-5h"];
+/// Handles to the tray check items. The tray menu lives on the tray icon, so
+/// `app.menu()` (the app-level menu, never set here) cannot reach them —
+/// exclusivity sync must go through these handles directly.
+struct TrayChecks {
+    themes: [tauri::menu::CheckMenuItem<tauri::Wry>; 3],
+    metrics: [tauri::menu::CheckMenuItem<tauri::Wry>; 2],
+}
+static TRAY_CHECKS: std::sync::OnceLock<TrayChecks> = std::sync::OnceLock::new();
+
+/// Radio-group sync: exactly the item whose id matches `active` is checked.
+fn sync_check_group(
+    items: &[tauri::menu::CheckMenuItem<tauri::Wry>],
+    ids: &[&str],
+    active: &str,
+) {
+    for (item, id) in items.iter().zip(ids) {
+        let _ = item.set_checked(*id == active);
+    }
+}
 /// Which screen edge the ball is docked to (right or left).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DockEdge {
@@ -261,20 +280,12 @@ fn dock_ball(window: tauri::WebviewWindow) {
 /// frontend's persisted choices (e.g. after a relaunch restoring
 /// non-default selections).
 #[tauri::command]
-fn sync_menus(app: tauri::AppHandle, theme: String, metric: String) {
-    let Some(menu) = app.menu() else { return };
+fn sync_menus(theme: String, metric: String) {
+    let Some(checks) = TRAY_CHECKS.get() else { return };
     let theme_target = format!("theme-{theme}");
-    for id in THEME_MENU_IDS {
-        if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
-            let _ = item.set_checked(id == theme_target);
-        }
-    }
+    sync_check_group(&checks.themes, &THEME_MENU_IDS, &theme_target);
     let metric_target = format!("metric-{metric}");
-    for id in METRIC_MENU_IDS {
-        if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
-            let _ = item.set_checked(id == metric_target);
-        }
-    }
+    sync_check_group(&checks.metrics, &METRIC_MENU_IDS, &metric_target);
 }
 
 // ---------- quota fetch ----------
@@ -1046,6 +1057,10 @@ fn main() {
             let metric_menu = SubmenuBuilder::with_id(app, "metric", "悬浮球显示")
                 .items(&[&metric_total, &metric_5h])
                 .build()?;
+            let _ = TRAY_CHECKS.set(TrayChecks {
+                themes: [theme_abyss.clone(), theme_emerald.clone(), theme_rainbow.clone()],
+                metrics: [metric_total.clone(), metric_5h.clone()],
+            });
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)
                 .items(&[&refresh_item, &theme_menu, &metric_menu, &quit_item])
@@ -1065,12 +1080,8 @@ fn main() {
                         }
                     }
                     "theme-abyss" | "theme-emerald" | "theme-rainbow" => {
-                        if let Some(menu) = app.menu() {
-                            for id in THEME_MENU_IDS {
-                                if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
-                                    let _ = item.set_checked(id == event.id().as_ref());
-                                }
-                            }
+                        if let Some(checks) = TRAY_CHECKS.get() {
+                            sync_check_group(&checks.themes, &THEME_MENU_IDS, event.id().as_ref());
                         }
                         if let Some(w) = app.get_webview_window("main") {
                             let theme = event.id().as_ref().trim_start_matches("theme-");
@@ -1080,12 +1091,8 @@ fn main() {
                         }
                     }
                     "metric-total" | "metric-5h" => {
-                        if let Some(menu) = app.menu() {
-                            for id in METRIC_MENU_IDS {
-                                if let Some(tauri::menu::MenuItemKind::Check(item)) = menu.get(id) {
-                                    let _ = item.set_checked(id == event.id().as_ref());
-                                }
-                            }
+                        if let Some(checks) = TRAY_CHECKS.get() {
+                            sync_check_group(&checks.metrics, &METRIC_MENU_IDS, event.id().as_ref());
                         }
                         if let Some(w) = app.get_webview_window("main") {
                             let metric = event.id().as_ref().trim_start_matches("metric-");
