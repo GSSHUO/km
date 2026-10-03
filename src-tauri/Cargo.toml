@@ -1,6 +1,6 @@
 [package]
 name = "kimi-quota-bar"
-version = "0.1.3"
+version = "0.1.4"
 description = "Menu-bar card showing Kimi subscription quota usage"
 edition = "2021"
 rust-version = "1.77"

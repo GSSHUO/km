@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>悬浮球重设计 v2 · 忠实现版结构增强版</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   设计令牌 —— 与项目 ui/style.css 的 :root 保持同源
+   ============================================================ */
+:root {
+  --color-bg: #06070d;
+  --color-text: #eef2ff;
+  --color-muted: #8b93b0;
+  --color-accent: #5ee9ff;
+  --color-border: rgba(160, 180, 255, 0.14);
+  --font-display: "Orbitron", "Noto Sans SC", sans-serif;
+  --font-data: "JetBrains Mono", "Noto Sans SC", monospace;
+  --font-body: "Noto Sans SC", sans-serif;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-base: 320ms; --dur-slow: 640ms;
+  /* 与项目 :root 同名同义：光晕强度由控制滑杆驱动 */
+  --orb-glow: 0.6;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { color-scheme: dark; }
+body {
+  font-family: var(--font-body); color: var(--color-text);
+  background: var(--color-bg); line-height: 1.7; letter-spacing: 0.02em;
+  min-height: 100vh; overflow-x: hidden;
+}
+/* 氛围层（仅页面装饰，不参与球体） */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(70rem 44rem at 8% -12%, rgba(77,227,255,.08), transparent 60%),
+    radial-gradient(56rem 40rem at 100% 8%, rgba(139,92,246,.10), transparent 55%);
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+.wrap { position: relative; z-index: 2; max-width: 1240px; margin: 0 auto; padding: 56px 40px 80px; }
+
+/* ============================================================
+   页头
+   ============================================================ */
+header { margin-bottom: 44px; }
+.kicker {
+  font-family: var(--font-data); font-size: 12px; font-weight: 700;
+  letter-spacing: .35em; text-transform: uppercase; color: var(--color-accent); margin-bottom: 14px;
+}
+.kicker::before { content: "◢ "; }
+h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(32px, 4.6vw, 52px); line-height: 1.08; letter-spacing: -0.02em; }
+h1 .en { color: transparent; -webkit-text-stroke: 1px rgba(238,242,255,.5); font-size: .58em; display: block; letter-spacing: .04em; margin-top: 6px; }
+.direction {
+  max-width: 72ch; margin-top: 18px; color: var(--color-muted); font-size: 14.5px;
+  border-left: 2px solid var(--color-accent); padding-left: 16px;
+}
+.direction b { color: var(--color-text); font-weight: 500; }
+
+/* ============================================================
+   主布局
+   ============================================================ */
+.layout { display: grid; grid-template-columns: 1.45fr .9fr; gap: 28px; align-items: stretch; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+
+/* ---------- 舞台：模拟桌面壁纸 + 吸边 ---------- */
+.stage {
+  position: relative; border: 1px solid var(--color-border); border-radius: 20px;
+  min-height: 560px; overflow: hidden;
+}
+/* 桌面壁纸：花一些、亮一些，磨砂 backdrop-blur 才有东西可糊 */
+.wallpaper {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(42rem 30rem at 18% 22%, rgba(124, 58, 237, 0.55), transparent 62%),
+    radial-gradient(36rem 26rem at 82% 18%, rgba(8, 145, 178, 0.5), transparent 60%),
+    radial-gradient(40rem 32rem at 62% 88%, rgba(217, 70, 239, 0.42), transparent 62%),
+    radial-gradient(30rem 24rem at 8% 92%, rgba(74, 222, 128, 0.28), transparent 58%),
+    linear-gradient(160deg, #101426 0%, #0a0c18 55%, #131024 100%);
+}
+.wallpaper::after { /* 壁纸上的微光星点，增加“真实桌面”质感 */
+  content: ""; position: absolute; inset: 0; opacity: .5;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 30%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 34% 68%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1.5px 1.5px at 56% 24%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 72% 58%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1.5px 1.5px at 88% 36%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 22% 84%, rgba(255,255,255,.5), transparent);
+}
+.stage-tag {
+  position: absolute; top: 18px; left: 24px; z-index: 5;
+  font-family: var(--font-data); font-size: 11px; letter-spacing: .25em;
+  color: rgba(255,255,255,.55); text-transform: uppercase;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+
+/* 吸边区 */
+.dock-zone { position: absolute; top: 0; right: 0; bottom: 0; width: 96px; cursor: pointer; z-index: 6; }
+.dock-edge {
+  position: absolute; top: 0; right: 64px; bottom: 0; width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,.5), transparent);
+}
+.dock-hint {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  writing-mode: vertical-rl; font-family: var(--font-data); font-size: 10px;
+  letter-spacing: .3em; color: rgba(255,255,255,.5);
+  text-shadow: 0 1px 4px rgba(0,0,0,.6); transition: color var(--dur-base) var(--ease-out);
+}
+.dock-zone:hover .dock-hint { color: #fff; }
+
+/* ============================================================
+   悬浮球 v2 —— 忠实还原项目结构：
+   磨砂芯(高斯模糊底) → 极光swirl → 环内粒子 → 内嵌进度环 → 百分比
+   尺寸完全由 --s 驱动；60px 时数值与 ui/style.css 一一对应
+   ============================================================ */
+.orb {
+  position: relative; width: var(--s, 60px); height: var(--s, 60px);
+  border-radius: 50%; user-select: none; flex: none;
+  color: rgba(255, 255, 255, 0.95);
+  /* 磨砂芯 Frost Core：近纯黑底叠深紫氛围渐变 + 高斯模糊透出壁纸 */
+  background: linear-gradient(140deg,
+    rgba(88, 28, 135, 0.34), rgba(9, 7, 16, 0.66) 48%,
+    rgba(34, 20, 60, 0.5)), rgba(4, 3, 9, 0.72);
+  backdrop-filter: blur(min(calc(var(--s) * 0.3), 40px)) saturate(190%);
+  -webkit-backdrop-filter: blur(min(calc(var(--s) * 0.3), 40px)) saturate(190%);
+  /* 无圈线：边缘用柔和内光衰减定义（窗口与球等大，外发光会被裁剪） */
+  box-shadow:
+    inset 0 calc(var(--s) * 0.017) calc(var(--s) * 0.033) rgba(255,255,255,0.32),
+    inset 0 calc(var(--s) * -0.117) calc(var(--s) * 0.2) rgba(74, 222, 128, calc(0.12 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * 0.083) 0 calc(var(--s) * 0.2) rgba(139, 92, 246, calc(0.20 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * -0.083) 0 calc(var(--s) * 0.2) rgba(192, 132, 252, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(216, 180, 254, 0.12);
+  cursor: pointer;
+  will-change: transform;
+}
+.orb > * { position: absolute; pointer-events: none; }
+
+/* 顶部柔和镜面高光（.ball::before 等价） */
+.gloss {
+  top: 6%; left: 50%; width: 46%; height: 18%;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,.5), rgba(255,255,255,0) 70%);
+}
+/* 呼吸辉光 Rim Glow（.ball::after 等价，主题色覆盖） */
+.halo {
+  inset: 0; border-radius: 50%;
+  animation: orb-halo 3.1s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+@keyframes orb-halo {
+  0%, 100% { opacity: .55; transform: scale(.96); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+/* 极光流转底光（.orb-swirl 等价）：conic 慢旋 + 径向 mask */
+.swirl {
+  inset: 0; border-radius: 50%; opacity: .58;
+  -webkit-mask: radial-gradient(farthest-side, rgba(0,0,0,.22), #000 80%);
+  mask: radial-gradient(farthest-side, rgba(0,0,0,.22), #000 80%);
+  animation: orb-spin 14s linear infinite;
+  will-change: transform;
+  transition: opacity .15s ease;
+}
+.orb:hover .swirl { opacity: .78; }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+
+/* ---------- 环内粒子画布：严格收在进度环内侧 ---------- */
+.stars {
+  /* 进度环内缘半径 ≈ 0.353s（60px 球 ≈ 21px），画布收在 16% 留出安全边 */
+  inset: 16%; border-radius: 50%;
+}
+
+/* ---------- 最外层游星：贴球体外缘转圈（对应现版 .orb-orbit，更小更靠外） ---------- */
+.orbit-outer {
+  inset: 2.8%; border-radius: 50%;
+  animation: orb-spin 9s linear infinite reverse;
+  will-change: transform;
+}
+.orbit-outer i {
+  position: absolute; top: 0; left: 50%;
+  width: calc(var(--s) * 0.038); height: calc(var(--s) * 0.038);
+  margin-left: calc(var(--s) * -0.019);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff, var(--orbit-dot) 60%, transparent 78%);
+  box-shadow: 0 0 calc(var(--s) * 0.07) 1px var(--orbit-glow);
+}
+
+/* ---------- 进度环：内嵌（不在最外层） ---------- */
+/* svg inset 6.7%（60px 球 = 4px，对应 .orb-body svg inset 4px） */
+.ring {
+  inset: 6.7%; width: 86.6%; height: 86.6%;
+  transform: rotate(-90deg); overflow: visible;
+}
+.ring .track { fill: none; stroke: rgba(255,255,255,0.11); stroke-width: 6; }
+.ring .bar {
+  fill: none; stroke-width: 6; stroke-linecap: round;
+  stroke-dasharray: 188.5; stroke-dashoffset: 188.5;
+  /* 收敛：光晕砍薄，只留贴身柔光 */
+  filter: drop-shadow(0 0 1.5px var(--bar-glow)) drop-shadow(0 0 4px var(--bar-glow-soft));
+  transition: stroke-dashoffset .6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 进度弧末端亮点（缩小版） */
+.ring .tip {
+  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--bar-glow));
+}
+/* 主信息（.orb-body .pct 等价） */
+.pct {
+  inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-size: calc(var(--s) * 0.2167); font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.007em;
+  color: #f3e8ff;
+  text-shadow: 0 1px 6px rgba(8,4,16,.8), 0 0 10px rgba(139,92,246,.5);
+}
+
+/* ---------- 主题（与项目三套主题一一对应） ---------- */
+/* 深渊紫黑 abyss（默认） */
+.orb[data-theme="abyss"] { --bar-glow: rgba(139, 92, 246, 0.85); --bar-glow-soft: rgba(139, 92, 246, 0.35); --orbit-dot: rgba(134, 239, 172, 0.9); --orbit-glow: rgba(74, 222, 128, 0.7); }
+.orb[data-theme="abyss"] .halo {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(139,92,246, calc(0.20 + 0.20 * var(--orb-glow))),
+    rgba(74,222,128, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(74,222,128, 0) 76%);
+}
+.orb[data-theme="abyss"] .swirl {
+  background: conic-gradient(from 0deg,
+    rgba(74,222,128,0), rgba(74,222,128,.42) 70deg,
+    rgba(139,92,246,.52) 165deg, rgba(217,70,239,.46) 255deg,
+    rgba(74,222,128,0) 360deg);
+}
+/* 翡翠庭园 emerald */
+.orb[data-theme="emerald"] {
+  --bar-glow: rgba(45, 212, 191, 0.8); --bar-glow-soft: rgba(45, 212, 191, 0.32);
+  --orbit-dot: rgba(253, 230, 138, 0.9); --orbit-glow: rgba(252, 211, 77, 0.7);
+  background: linear-gradient(140deg,
+    rgba(163,230,53,.22), rgba(14,62,40,.44) 40%,
+    rgba(20,116,112,.32) 72%, rgba(96,165,250,.20)), rgba(4,13,9,.56);
+  box-shadow:
+    inset 0 calc(var(--s) * 0.017) calc(var(--s) * 0.033) rgba(255,255,255,0.4),
+    inset 0 calc(var(--s) * -0.117) calc(var(--s) * 0.2) rgba(45,212,191, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * 0.083) 0 calc(var(--s) * 0.2) rgba(163,230,53, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * -0.083) 0 calc(var(--s) * 0.2) rgba(96,165,250, calc(0.14 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+.orb[data-theme="emerald"] .halo {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(52,211,153, calc(0.18 + 0.18 * var(--orb-glow))),
+    rgba(96,165,250, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(96,165,250, 0) 76%);
+}
+.orb[data-theme="emerald"] .swirl {
+  background: conic-gradient(from 0deg,
+    rgba(163,230,53,0), rgba(190,242,100,.48) 60deg,
+    rgba(52,211,153,.5) 150deg, rgba(45,212,191,.46) 225deg,
+    rgba(96,165,250,.44) 300deg, rgba(163,230,53,0) 360deg);
+}
+.orb[data-theme="emerald"] .pct { color: #f0fdf4; text-shadow: 0 1px 6px rgba(3,14,6,.7), 0 0 10px rgba(45,212,191,.4); }
+/* 独角兽彩虹 rainbow */
+.orb[data-theme="rainbow"] {
+  --bar-glow: rgba(167, 139, 250, 0.8); --bar-glow-soft: rgba(167, 139, 250, 0.32);
+  --orbit-dot: rgba(253, 224, 71, 0.9); --orbit-glow: rgba(244, 114, 182, 0.7);
+  background:
+    linear-gradient(140deg,
+      rgba(244,114,182,.18), rgba(251,191,36,.16) 30%,
+      rgba(52,211,153,.16) 55%, rgba(56,189,248,.18) 75%,
+      rgba(167,139,250,.18)), rgba(26,19,42,.48);
+  box-shadow:
+    inset 0 calc(var(--s) * 0.017) calc(var(--s) * 0.033) rgba(255,255,255,0.45),
+    inset 0 calc(var(--s) * -0.117) calc(var(--s) * 0.2) rgba(56,189,248, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * 0.083) 0 calc(var(--s) * 0.2) rgba(244,114,182, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset calc(var(--s) * -0.083) 0 calc(var(--s) * 0.2) rgba(167,139,250, calc(0.16 + 0.12 * var(--orb-glow))),
+    inset 0 0 0 1px rgba(255,255,255,0.16);
+}
+.orb[data-theme="rainbow"] .halo {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(167,139,250, calc(0.16 + 0.16 * var(--orb-glow))),
+    rgba(56,189,248, calc(0.08 + 0.10 * var(--orb-glow))) 58%,
+    rgba(56,189,248, 0) 76%);
+}
+.orb[data-theme="rainbow"] .swirl {
+  background: conic-gradient(from 0deg,
+    rgba(244,114,182,0), rgba(251,113,133,.48) 50deg,
+    rgba(251,191,36,.46) 110deg, rgba(52,211,153,.46) 180deg,
+    rgba(56,189,248,.46) 250deg, rgba(167,139,250,.48) 310deg,
+    rgba(244,114,182,0) 360deg);
+}
+.orb[data-theme="rainbow"] .pct { color: #fff; text-shadow: 0 1px 6px rgba(20,10,30,.7), 0 0 12px rgba(244,114,182,.4), 0 0 12px rgba(56,189,248,.35); }
+
+/* ---------- 吸边态：半隐 + 悬停滑出 ---------- */
+.dock-orb {
+  position: absolute; top: 50%; right: 0;
+  transform: translate(46%, -50%);
+  transition: transform var(--dur-slow) var(--ease-out);
+  z-index: 3;
+}
+.dock-zone:hover .dock-orb, .dock-zone:focus-visible .dock-orb { transform: translate(0%, -50%); }
+/* 游离态呼吸浮动（现版 orb-breathe，主球启用） */
+.breathe { animation: orb-breathe 2.9s ease-in-out infinite; will-change: transform; }
+@keyframes orb-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+
+/* ============================================================
+   控制轨
+   ============================================================ */
+.rail { display: flex; flex-direction: column; gap: 20px; }
+.panel {
+  border: 1px solid var(--color-border); border-radius: 16px;
+  background: rgba(255,255,255,.035); padding: 22px 24px;
+}
+.panel h2 {
+  font-family: var(--font-data); font-size: 11px; font-weight: 700;
+  letter-spacing: .3em; text-transform: uppercase; color: var(--color-accent); margin-bottom: 16px;
+}
+.ctrl { margin-bottom: 18px; }
+.ctrl:last-child { margin-bottom: 0; }
+.ctrl-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 13px; color: var(--color-muted); }
+.ctrl-head output { font-family: var(--font-data); font-weight: 700; font-size: 15px; color: var(--color-text); font-variant-numeric: tabular-nums; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: none; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, #4ade80, #22d3ee, #8b5cf6, #d946ef);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6.5px; border-radius: 50%;
+  background: #fff; border: 2px solid #a78bfa; box-shadow: 0 0 10px rgba(139,92,246,.8);
+}
+input[type="range"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; border-radius: 4px; }
+.seg { display: flex; gap: 8px; flex-wrap: wrap; }
+.seg button {
+  font-family: var(--font-body); font-size: 12.5px; color: var(--color-muted);
+  background: rgba(255,255,255,.04); border: 1px solid var(--color-border);
+  border-radius: 999px; padding: 7px 16px; cursor: pointer; min-height: 32px;
+  transition: all var(--dur-base) var(--ease-out);
+}
+.seg button:hover { color: var(--color-text); border-color: rgba(167,139,250,.6); }
+.seg button[aria-pressed="true"] {
+  color: #fff; background: rgba(139,92,246,.55); border-color: rgba(167,139,250,.9);
+  font-weight: 700; box-shadow: 0 0 14px rgba(139,92,246,.45);
+}
+.seg button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+.points { list-style: none; }
+.points li {
+  font-size: 13.5px; color: var(--color-muted); padding: 9px 0 9px 22px; position: relative;
+  border-bottom: 1px dashed rgba(160,180,255,.1);
+}
+.points li:last-child { border-bottom: none; }
+.points li::before { content: "◆"; position: absolute; left: 2px; top: 10px; font-size: 9px; color: #a78bfa; }
+.points b { color: var(--color-text); font-weight: 500; }
+
+/* ============================================================
+   适配带
+   ============================================================ */
+.specimens {
+  margin-top: 48px; display: flex; gap: 56px; align-items: flex-end; flex-wrap: wrap;
+  border-top: 1px solid var(--color-border); padding-top: 40px;
+}
+.spec { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.spec .meta { font-family: var(--font-data); font-size: 11px; letter-spacing: .18em; color: var(--color-muted); text-align: center; }
+.spec .meta b { display: block; color: var(--color-text); font-size: 12.5px; margin-bottom: 2px; letter-spacing: .1em; }
+.spec-divider { width: 1px; align-self: stretch; background: linear-gradient(180deg, transparent, var(--color-border), transparent); }
+/* 供 specimen 展示的小壁纸底，让磨砂 blur 有内容可糊 */
+.spec-wall {
+  padding: 18px; border-radius: 50%;
+  background:
+    radial-gradient(8rem 6rem at 30% 30%, rgba(124,58,237,.6), transparent 65%),
+    radial-gradient(7rem 5rem at 70% 70%, rgba(8,145,178,.55), transparent 60%),
+    linear-gradient(150deg, #141830, #0c0e1c);
+}
+
+/* ---------- 入场编排 ---------- */
+.reveal { opacity: 0; transform: translateY(24px); }
+.reveal.in { opacity: 1; transform: none; transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+.reveal:nth-child(2) { transition-delay: 90ms; }
+.reveal:nth-child(3) { transition-delay: 180ms; }
+
+/* ---------- 降级 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .halo, .swirl, .breathe, .orbit-outer { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .ring .bar, .dock-orb { transition: none; }
+}
+
+footer { margin-top: 56px; font-family: var(--font-data); font-size: 11px; letter-spacing: .2em; color: var(--color-muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="reveal in">
+    <p class="kicker">Kimi Quota Bar · 悬浮球 v2（对齐现版结构）</p>
+    <h1>磨砂芯 · 忠实增强版<span class="en">FROST CORE ENHANCED / DESIGN CASE v2</span></h1>
+    <p class="direction">
+      这一版严格对齐项目现版结构：<b>高斯模糊磨砂底</b>（backdrop-blur 透出壁纸）→
+      <b>极光 swirl</b> → <b>粒子全部收在进度环内侧</b> → <b>进度环内嵌靠里、不在最外层</b> → 百分比。
+      进度环沿用现版四色渐变（绿→青→紫→洋红），只把同色柔光加厚一档、并新增弧末亮点；
+      粒子从 5 枚扩到最多 26 枚上升光尘 + 3 颗环游星（带拖尾），全部限制在环内，节奏错开不杂乱。
+      三套主题（深渊紫黑 / 翡翠庭园 / 独角兽彩虹）与项目主题一一对应。
+    </p>
+  </header>
+
+  <div class="layout">
+    <!-- ================= 舞台 ================= -->
+    <section class="stage reveal in" aria-label="悬浮球主演示">
+      <div class="wallpaper" aria-hidden="true"></div>
+      <span class="stage-tag">Desktop Wallpaper · Frost Blur</span>
+
+      <div class="orb breathe" id="orb-main" style="--s: 240px" data-theme="abyss" role="img" aria-label="Kimi 额度悬浮球演示"></div>
+
+      <div class="dock-zone" tabindex="0" aria-label="吸边状态演示，悬停或聚焦展开悬浮球">
+        <div class="dock-edge"></div>
+        <span class="dock-hint">吸边态 · 悬停展开 →</span>
+        <div class="dock-orb orb" id="orb-dock" style="--s: 60px" data-theme="abyss"></div>
+      </div>
+    </section>
+
+    <!-- ================= 控制轨 ================= -->
+    <aside class="rail">
+      <div class="panel reveal in">
+        <h2>Live Controls</h2>
+
+        <div class="ctrl">
+          <div class="ctrl-head"><label for="pct">额度用量</label><output id="pct-out">99.47%</output></div>
+          <input type="range" id="pct" min="0" max="100" step="0.01" value="99.47">
+        </div>
+
+        <div class="ctrl">
+          <div class="ctrl-head"><label for="glow">光晕强度 --orb-glow</label><output id="glow-out">0.60</output></div>
+          <input type="range" id="glow" min="0" max="100" step="1" value="60">
+        </div>
+
+        <div class="ctrl">
+          <div class="ctrl-head"><span>主题（与项目三套对应）</span></div>
+          <div class="seg" role="group" aria-label="主题切换" id="theme-seg">
+            <button data-theme="abyss" aria-pressed="true">深渊紫黑</button>
+            <button data-theme="emerald" aria-pressed="false">翡翠庭园</button>
+            <button data-theme="rainbow" aria-pressed="false">独角兽彩虹</button>
+          </div>
+        </div>
+
+        <div class="ctrl">
+          <div class="ctrl-head"><span>环内粒子密度</span></div>
+          <div class="seg" role="group" aria-label="粒子密度" id="density-seg">
+            <button data-d="low" aria-pressed="false">低 · 8+1</button>
+            <button data-d="mid" aria-pressed="false">中 · 16+2</button>
+            <button data-d="high" aria-pressed="true">高 · 26+3</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel reveal in">
+        <h2>这版改了什么</h2>
+        <ul class="points">
+          <li><b>结构对齐</b>：磨砂 blur 底 → swirl → 环内粒子 → 内嵌进度环 → 百分比，层序与 ui/style.css 完全一致；进度环内收 6.7%，不再顶在最外层。</li>
+          <li><b>配色回归</b>：进度环用回现版四色渐变（#4ade80 → #22d3ee → #8b5cf6 → #d946ef），颜色不随用量变化；只把同色 drop-shadow 从 3px 加厚到 3px+8px 双层，亮一档。</li>
+          <li><b>粒子 confined 在环内</b>：上升光尘（最多 26 枚，主题色轮换）+ 3 颗环游星带渐隐拖尾，全部画在环内缘半径以内，画布本身是圆形裁剪。</li>
+          <li><b>新增亮点</b>：进度弧末端一枚小白光点（贴环内侧、已缩小），兼当读数指针。</li>
+          <li><b>最外层游星</b>：贴球体外缘一圈一颗小星反向慢转（对应现版 .orb-orbit 位置），带主题色微光。</li>
+          <li><b>性能不变</b>：粒子单画布、数量封顶、DPR ≤ 2、只动 transform/opacity、页面隐藏暂停 rAF、reduced-motion 静态降级——与现版同一套约束。</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ================= 尺寸适配带 ================= -->
+  <section class="specimens reveal in" aria-label="多尺寸适配展示">
+    <div class="spec">
+      <div class="spec-wall"><div class="orb" id="orb-60" style="--s: 60px" data-theme="abyss"></div></div>
+      <p class="meta"><b>60px · 当前尺寸</b>BALL_SIZE</p>
+    </div>
+    <div class="spec-divider"></div>
+    <div class="spec">
+      <div class="spec-wall"><div class="orb" id="orb-44" style="--s: 44px" data-theme="abyss"></div></div>
+      <p class="meta"><b>44px · 迷你档</b>低干扰模式</p>
+    </div>
+    <div class="spec-divider"></div>
+    <div class="spec">
+      <div class="spec-wall"><div class="orb" id="orb-88" style="--s: 88px" data-theme="abyss"></div></div>
+      <p class="meta"><b>88px · 放大档</b>悬停展开候选</p>
+    </div>
+  </section>
+
+  <footer>DESIGN CASE v2 — 未改动项目任何代码 · 层序与配色对齐 ui/style.css 现版实现</footer>
+</div>
+
+<script>
+/* ============================================================
+   悬浮球构建器 v2
+   层序（后 → 前）：halo 呼吸辉光 → swirl 极光 → stars 环内粒子
+   → ring 内嵌进度环 → pct 百分比 → gloss 顶部高光
+   ============================================================ */
+const THEMES = {
+  abyss: {
+    stops: [[0, '#4ade80'], [0.35, '#22d3ee'], [0.7, '#8b5cf6'], [1, '#d946ef']],
+    palette: ['#86efac', '#c4b5fd', '#ffffff', '#a78bfa', '#4ade80'],
+    orbit: '#a7f3d0',
+  },
+  emerald: {
+    stops: [[0, '#bef264'], [0.38, '#34d399'], [0.7, '#2dd4bf'], [1, '#60a5fa']],
+    palette: ['#d9f99d', '#86efac', '#ffffff', '#7dd3fc', '#fde68a'],
+    orbit: '#fde68a',
+  },
+  rainbow: {
+    stops: [[0, '#fb7185'], [0.25, '#fbbf24'], [0.5, '#34d399'], [0.75, '#38bdf8'], [1, '#a78bfa']],
+    palette: ['#fda4af', '#fde68a', '#86efac', '#7dd3fc', '#c4b5fd'],
+    orbit: '#fda4af',
+  },
+};
+const DENSITY = { low: [8, 1], mid: [16, 2], high: [26, 3] };
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const orbs = [];
+let uid = 0;
+
+function buildOrb(el, { mini = false } = {}) {
+  const s = parseFloat(getComputedStyle(el).getPropertyValue('--s')) || 60;
+  const id = 'grad-' + (++uid);
+
+  el.insertAdjacentHTML('beforeend', `
+    <div class="halo" aria-hidden="true"></div>
+    <div class="swirl" aria-hidden="true"></div>
+    <div class="orbit-outer" aria-hidden="true"><i></i></div>
+    <canvas class="stars" aria-hidden="true"></canvas>
+    <svg class="ring" viewBox="0 0 72 72" aria-hidden="true">
+      <defs>
+        <linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+          ${THEMES.abyss.stops.map(([o, c]) => `<stop offset="${o * 100}%" stop-color="${c}"/>`).join('')}
+        </linearGradient>
+      </defs>
+      <circle class="track" cx="36" cy="36" r="30"/>
+      <circle class="bar" r="30" cx="36" cy="36" stroke="url(#${id})"/>
+      <circle class="tip" r="1.7" fill="#fff" cx="36" cy="6"/>
+    </svg>
+    <div class="pct"><span class="num">0.00</span>%</div>
+    <div class="gloss" aria-hidden="true"></div>`);
+
+  const inst = {
+    el, s, mini,
+    bar: el.querySelector('.bar'),
+    tip: el.querySelector('.tip'),
+    grad: el.querySelector('linearGradient'),
+    num: el.querySelector('.num'),
+    canvas: el.querySelector('.stars'),
+    pct: 0, theme: 'abyss',
+    motes: [], orbiters: [],
+    raf: 0, last: 0,
+    density: mini ? DENSITY.low : DENSITY.high,
+    palette: THEMES.abyss.palette, orbitColor: THEMES.abyss.orbit,
+  };
+  orbs.push(inst);
+  setupStars(inst);
+  return inst;
+}
+
+/* ---------- 环内粒子：上升光尘 + 环游星，全部限制在圆形画布内 ---------- */
+function setupStars(inst) {
+  const { canvas, s } = inst;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const box = Math.round(s * 0.68);            // inset 16% → 画布为球的 68%
+  canvas.width = box * dpr; canvas.height = box * dpr;
+  canvas.style.width = canvas.style.height = box + 'px';
+  inst.ctx = canvas.getContext('2d');
+  inst.ctx.scale(dpr, dpr);
+  inst.box = box;
+  inst.R = box / 2;
+
+  const [nm, no] = inst.density;
+  inst.motes = Array.from({ length: nm }, () => spawnMote(inst, true));
+  inst.orbiters = Array.from({ length: no }, (_, i) => ({
+    a: Math.random() * Math.PI * 2,
+    r: 0.52 + 0.14 * i,                        // 三颗星错开轨道半径
+    spd: (i % 2 ? -1 : 1) * (0.5 + 0.18 * i),
+    sz: 1.15 + Math.random() * 0.55,
+    tw: Math.random() * Math.PI * 2,
+  }));
+  if (REDUCED) { drawStars(inst, 0, 0); return; }
+  startLoop(inst);
+}
+
+/* 上升光尘：从下缘生成，缓慢上浮 + 左右微摆 + 闪烁，出顶后回收 */
+function spawnMote(inst, anywhere) {
+  const R = inst.R;
+  const ang = Math.random() * Math.PI * 2;
+  const rr = Math.sqrt(Math.random()) * 0.92;   // 单位盘内均匀分布
+  return {
+    x: R + Math.cos(ang) * rr * R,
+    y: anywhere ? R + Math.sin(ang) * rr * R : R * 1.85,
+    vy: (10 + Math.random() * 16) * (inst.s / 60),   // px/s，随球尺寸缩放
+    sway: 2 + Math.random() * 4,
+    swaySpd: 0.6 + Math.random() * 1.2,
+    sz: (1.1 + Math.random() * 1.4) * (inst.s / 60),
+    tw: Math.random() * Math.PI * 2,
+    twSpd: 1.5 + Math.random() * 2.5,
+    color: inst.palette[(Math.random() * inst.palette.length) | 0],
+  };
+}
+
+function drawStars(inst, t, dt) {
+  const { ctx, box, R } = inst;
+  ctx.clearRect(0, 0, box, box);
+  ctx.globalCompositeOperation = 'lighter';
+
+  /* 上升光尘 */
+  for (const p of inst.motes) {
+    p.y -= p.vy * dt;
+    if (p.y < -4) Object.assign(p, spawnMote(inst, false));
+    const x = p.x + Math.sin(t * p.swaySpd + p.tw) * p.sway;
+    const alpha = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(p.tw + t * p.twSpd));
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = alpha * 0.3;                       // 外晕
+    ctx.beginPath(); ctx.arc(x, p.y, p.sz * 2.4, 0, 7); ctx.fill();
+    ctx.globalAlpha = alpha;                             // 亮核
+    ctx.beginPath(); ctx.arc(x, p.y, p.sz, 0, 7); ctx.fill();
+  }
+
+  /* 环游星：贴内缘游走 + 渐隐拖尾 */
+  for (const o of inst.orbiters) {
+    o.a += o.spd * dt;
+    for (let k = 3; k >= 0; k--) {                       // 拖尾 4 帧
+      const a = o.a - o.spd * k * 0.06;
+      const x = R + Math.cos(a) * o.r * R;
+      const y = R + Math.sin(a) * o.r * R;
+      const fade = (1 - k / 4) * (0.55 + 0.45 * Math.sin(o.tw + t * 2));
+      ctx.globalAlpha = Math.max(fade, 0) * (k === 0 ? 1 : 0.35);
+      ctx.fillStyle = k === 0 ? '#ffffff' : inst.orbitColor;
+      ctx.beginPath(); ctx.arc(x, y, o.sz * (k === 0 ? 1 : 0.8), 0, 7); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function startLoop(inst) {
+  cancelAnimationFrame(inst.raf);
+  const loop = (ts) => {
+    if (!inst.last) inst.last = ts;
+    const dt = Math.min((ts - inst.last) / 1000, 0.05);
+    inst.last = ts;
+    drawStars(inst, ts / 1000, dt);
+    inst.raf = requestAnimationFrame(loop);
+  };
+  inst.raf = requestAnimationFrame(loop);
+}
+/* 页面隐藏自动暂停 */
+document.addEventListener('visibilitychange', () => {
+  for (const o of orbs) {
+    if (REDUCED) continue;
+    if (document.hidden) cancelAnimationFrame(o.raf);
+    else { o.last = 0; startLoop(o); }
+  }
+});
+
+/* ---------- 读数 / 主题 / 密度更新 ---------- */
+function applyPct(inst, pct) {
+  inst.pct = pct;
+  inst.bar.style.strokeDashoffset = 188.5 * (1 - pct / 100);
+  const ang = (-90 + 360 * pct / 100) * Math.PI / 180;
+  inst.tip.setAttribute('cx', (36 + 30 * Math.cos(ang)).toFixed(2));
+  inst.tip.setAttribute('cy', (36 + 30 * Math.sin(ang)).toFixed(2));
+  inst.num.textContent = pct.toFixed(2);
+}
+
+function applyTheme(inst, name) {
+  inst.theme = name;
+  inst.el.dataset.theme = name;
+  const t = THEMES[name];
+  inst.palette = t.palette;
+  inst.orbitColor = t.orbit;
+  /* 重建渐变 stops（不同主题 stop 数不同） */
+  inst.grad.innerHTML = t.stops.map(([o, c]) =>
+    `<stop offset="${o * 100}%" stop-color="${c}"/>`).join('');
+  for (const p of inst.motes) p.color = t.palette[(Math.random() * t.palette.length) | 0];
+  if (REDUCED) drawStars(inst, 0, 0);
+}
+
+function refresh(pct) { for (const o of orbs) applyPct(o, pct); }
+
+/* ---------- 构建实例 ---------- */
+buildOrb(document.getElementById('orb-main'));
+buildOrb(document.getElementById('orb-dock'), { mini: true });
+buildOrb(document.getElementById('orb-60'));
+buildOrb(document.getElementById('orb-44'), { mini: true });
+buildOrb(document.getElementById('orb-88'));
+refresh(99.47);
+
+/* ---------- 控件绑定 ---------- */
+const pctInput = document.getElementById('pct'), pctOut = document.getElementById('pct-out');
+const glowInput = document.getElementById('glow'), glowOut = document.getElementById('glow-out');
+
+pctInput.addEventListener('input', () => {
+  pctOut.textContent = (+pctInput.value).toFixed(2) + '%';
+  refresh(+pctInput.value);
+});
+glowInput.addEventListener('input', () => {
+  glowOut.textContent = (glowInput.value / 100).toFixed(2);
+  document.documentElement.style.setProperty('--orb-glow', glowInput.value / 100);
+});
+
+function bindSeg(id, cb) {
+  const seg = document.getElementById(id);
+  seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === btn));
+    cb(btn.dataset);
+  });
+}
+bindSeg('theme-seg', d => { for (const o of orbs) applyTheme(o, d.theme); });
+bindSeg('density-seg', d => {
+  for (const o of orbs) {
+    if (o.mini) continue;                 // 小尺寸球恒定低量
+    o.density = DENSITY[d.d];
+    const [nm, no] = o.density;
+    o.motes = Array.from({ length: nm }, () => spawnMote(o, true));
+    o.orbiters = Array.from({ length: no }, (_, i) => ({
+      a: Math.random() * Math.PI * 2, r: 0.52 + 0.14 * i,
+      spd: (i % 2 ? -1 : 1) * (0.5 + 0.18 * i),
+      sz: 1.15 + Math.random() * 0.55, tw: Math.random() * Math.PI * 2,
+    }));
+    if (REDUCED) drawStars(o, 0, 0);
+  }
+});
+
+/* ---------- 入场编排 ---------- */
+requestAnimationFrame(() => {
+  document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+});
+</script>
+</body>
+</html>

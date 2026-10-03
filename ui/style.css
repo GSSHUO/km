@@ -280,11 +280,14 @@ body.ball-mode .ball {
   pointer-events: none;
 }
 @keyframes orb-spin { to { transform: rotate(360deg); } }
-/* 漂浮微粒：5 枚主题色光点缓慢上浮 + 闪烁，错开周期与相位（颜色按主题覆盖） */
+/* 漂浮微粒：8 枚主题色光点缓慢上浮 + 闪烁，错开周期与相位（颜色按主题覆盖）。
+   光感 = 白芯渐变 + 静态 box-shadow 辉光；动画仅 transform/opacity，
+   全部走合成器线程，辉光随层一次栅格化，8 枚也几乎零 CPU 开销。 */
 .orb-particles { position: absolute; inset: 0; pointer-events: none; }
 .orb-particles i {
   position: absolute; border-radius: 50%; opacity: 0;
-  background: radial-gradient(circle, currentColor 0%, transparent 70%);
+  background: radial-gradient(circle, #ffffff 0%, currentColor 45%, transparent 72%);
+  box-shadow: 0 0 4px 0.5px currentColor;
   animation: orb-float 4s ease-in-out infinite;
   will-change: transform, opacity;
 }
@@ -293,6 +296,9 @@ body.ball-mode .ball {
 .orb-particles .p3 { width: 3px; height: 3px; left: 44%; top: 56%; color: #ffffff; animation-duration: 3.0s; animation-delay: 1.6s; }
 .orb-particles .p4 { width: 2.5px; height: 2.5px; left: 68%; top: 46%; color: #a78bfa; animation-duration: 4.8s; animation-delay: 0.4s; }
 .orb-particles .p5 { width: 3.5px; height: 3.5px; left: 32%; top: 40%; color: #4ade80; animation-duration: 5.2s; animation-delay: 2.2s; }
+.orb-particles .p6 { width: 2px; height: 2px; left: 16%; top: 46%; color: #7dd3fc; animation-duration: 3.8s; animation-delay: 1.1s; }
+.orb-particles .p7 { width: 3px; height: 3px; left: 52%; top: 28%; color: #e9d5ff; animation-duration: 4.6s; animation-delay: 2.8s; }
+.orb-particles .p8 { width: 2.5px; height: 2.5px; left: 74%; top: 62%; color: #a5f3fc; animation-duration: 3.2s; animation-delay: 0.6s; }
 @keyframes orb-float {
   0% { transform: translate3d(0, 5px, 0) scale(0.6); opacity: 0; }
   35% { opacity: 1; }
@@ -413,6 +419,9 @@ body.theme-emerald .orb-particles .p2 { color: #86efac; }
 body.theme-emerald .orb-particles .p3 { color: #ffffff; }
 body.theme-emerald .orb-particles .p4 { color: #7dd3fc; }
 body.theme-emerald .orb-particles .p5 { color: #fde68a; }
+body.theme-emerald .orb-particles .p6 { color: #a7f3d0; }
+body.theme-emerald .orb-particles .p7 { color: #ffffff; }
+body.theme-emerald .orb-particles .p8 { color: #bae6fd; }
 body.theme-emerald .orb-orbit i {
   background: radial-gradient(circle, #ffffff, rgba(253, 230, 138, 0.9) 60%, transparent 75%);
   box-shadow: 0 0 6px 1px rgba(252, 211, 77, 0.85);
@@ -466,6 +475,9 @@ body.theme-rainbow .orb-particles .p2 { color: #fde68a; }
 body.theme-rainbow .orb-particles .p3 { color: #86efac; }
 body.theme-rainbow .orb-particles .p4 { color: #7dd3fc; }
 body.theme-rainbow .orb-particles .p5 { color: #c4b5fd; }
+body.theme-rainbow .orb-particles .p6 { color: #f9a8d4; }
+body.theme-rainbow .orb-particles .p7 { color: #a5f3fc; }
+body.theme-rainbow .orb-particles .p8 { color: #fef08a; }
 body.theme-rainbow .orb-orbit i {
   background: radial-gradient(circle, #ffffff, rgba(253, 224, 71, 0.9) 60%, transparent 75%);
   box-shadow: 0 0 6px 1px rgba(244, 114, 182, 0.8);
@@ -486,6 +498,60 @@ body.theme-rainbow .orb-body .pct {
     0 0 12px rgba(56, 189, 248, 0.35);
 }
 
+/* ============ 观赏模式（可选增强渲染层 · 默认关闭） ============ */
+/* 设计原则：本段所有规则都挂在 body.showcase-mode 之下——开关关闭时
+   零生效，悬浮球与旧版逐像素一致。开启后新增（参数即设计案例 v2.1
+   定稿值）：环内星尘画布（低密度 8 粒 + 1 颗环内游星，绘制在 app.js）、
+   最外圈 1 颗游星、进度弧末端小亮点、收敛版环光晕。
+   悬停行为与旧版完全一致：整体提亮，不缩放。 */
+
+/* 环光晕颜色令牌（随主题覆盖；仅观赏模式规则引用） */
+:root { --bar-glow: rgba(139, 92, 246, 0.85); --bar-glow-soft: rgba(139, 92, 246, 0.35); }
+body.theme-emerald { --bar-glow: rgba(45, 212, 191, 0.8); --bar-glow-soft: rgba(45, 212, 191, 0.32); }
+body.theme-rainbow { --bar-glow: rgba(167, 139, 250, 0.8); --bar-glow-soft: rgba(167, 139, 250, 0.32); }
+
+/* 进度弧末端小亮点：默认隐藏，观赏模式显示（位置由 app.js 按进度驱动） */
+.orb-body .tip { display: none; }
+body.showcase-mode .orb-body .tip {
+  display: initial;
+  fill: #ffffff;
+  filter: drop-shadow(0 0 2px #ffffff) drop-shadow(0 0 4px var(--bar-glow));
+}
+
+/* 环光晕收敛版：贴身 1.5px 柔光 + 低透明 4px 扩散，比旧版 3px 单层更薄 */
+body.showcase-mode .orb-body .bar {
+  filter: drop-shadow(0 0 1.5px var(--bar-glow)) drop-shadow(0 0 4px var(--bar-glow-soft));
+}
+
+/* 环内星尘画布：严格收在进度环内侧（内缘半径 ≈ 0.353 × 球径） */
+.orb-fx { display: none; }
+body.showcase-mode .orb-fx {
+  display: block;
+  position: absolute; inset: 16%; border-radius: 50%;
+  pointer-events: none;
+}
+
+/* 最外圈游星：贴球体外缘反向慢转（对应旧版 .orb-orbit 的轨道位，更小更靠外） */
+.orb-outer-orbit { display: none; }
+body.showcase-mode { --orbit-dot: rgba(134, 239, 172, 0.9); --orbit-glow: rgba(74, 222, 128, 0.7); }
+body.showcase-mode.theme-emerald { --orbit-dot: rgba(253, 230, 138, 0.9); --orbit-glow: rgba(252, 211, 77, 0.7); }
+body.showcase-mode.theme-rainbow { --orbit-dot: rgba(253, 224, 71, 0.9); --orbit-glow: rgba(244, 114, 182, 0.7); }
+body.showcase-mode .orb-outer-orbit {
+  display: block;
+  position: absolute; inset: 2.8%; border-radius: 50%;
+  animation: orb-spin 9s linear infinite reverse;
+  will-change: transform;
+  pointer-events: none;
+}
+body.showcase-mode .orb-outer-orbit i {
+  position: absolute; top: 0; left: 50%;
+  width: calc(var(--orb-size) * 0.038); height: calc(var(--orb-size) * 0.038);
+  margin-left: calc(var(--orb-size) * -0.019);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff, var(--orbit-dot) 60%, transparent 78%);
+  box-shadow: 0 0 4px 1px var(--orbit-glow);
+}
+
 /* 高对比度模式：关闭辉光 / 粒子 / 模糊，保留清晰描边与信息可读性 */
 @media (prefers-contrast: more) {
   body.ball-mode .ball {
@@ -497,9 +563,9 @@ body.theme-rainbow .orb-body .pct {
   .orb-swirl, .orb-particles, .orb-orbit, .orb-burst,
   body.ball-mode .ball::after { display: none; }
 }
-/* 减弱动效偏好：停止所有循环动画，保留静态玻璃质感 */
+/* 减弱动效偏好：停止所有循环动画，保留静态玻璃质感（观赏模式画布由 JS 停帧） */
 @media (prefers-reduced-motion: reduce) {
-  .orb-swirl, .orb-orbit, .orb-particles i,
+  .orb-swirl, .orb-orbit, .orb-outer-orbit, .orb-particles i,
   .orb-body, body.ball-mode .ball::after { animation: none; }
   .orb-particles i { opacity: 0.5; }
 }

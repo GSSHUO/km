@@ -18,6 +18,8 @@ function setRing(id, ratio) {
   if (ratio == null) {
     bar.style.strokeDashoffset = c;
     pct.textContent = "–";
+    // 球面弧末亮点（观赏模式）同步熄灭
+    if (id === "ball") setOrbTip(null);
     return;
   }
   const clamped = Math.max(0, Math.min(1, ratio));
@@ -25,6 +27,8 @@ function setRing(id, ratio) {
   // 球体进度环统一用极光渐变（CSS url(#orbGrad)），不按用量变色；
   // 卡片三环仍按用量着色。
   if (id !== "ball") bar.style.stroke = usageColor(clamped);
+  // 观赏模式弧末亮点跟随球面进度（关闭时 CSS 隐藏，更新无副作用）
+  if (id === "ball") setOrbTip(clamped);
   pct.textContent = (clamped * 100).toFixed(2) + "%";
 }
 
@@ -461,6 +465,8 @@ window.__kqbBallMode = (on) => {
     hideEl($("profilePanel"));
     hideEl($("confirmMask"));
   }
+  // 观赏模式粒子引擎只在「球态 + 观赏模式」运行；展开卡片即停帧省电。
+  syncFx();
 };
 window.__TAURI__.event.listen("ball-mode", (e) => window.__kqbBallMode(!!e.payload));
 
@@ -475,6 +481,10 @@ function applyOrbTheme(name) {
   ORB_THEMES.forEach((t) => document.body.classList.remove("theme-" + t));
   document.body.classList.add("theme-" + name);
   try { localStorage.setItem("kqb-orb-theme", name); } catch (e) { /* private mode */ }
+  // 观赏模式环内星尘随主题换色。注意：启动时本函数先于 showcase 模块
+  // 的 let fxState 初始化被调用（TDZ），必须 try/catch 兜住，否则整个
+  // 脚本会在此中断、额度完全不渲染。
+  try { refreshFxColors(); } catch (e) { /* showcase 模块尚未初始化 */ }
   return name;
 }
 window.__kqbSetTheme = applyOrbTheme;
@@ -501,8 +511,231 @@ let orbMetric = "total";
 try { orbMetric = localStorage.getItem("kqb-orb-metric") || "total"; } catch (e) { /* ignore */ }
 window.__kqbSetMetric = applyOrbMetric;
 
+// --- orb showcase mode（观赏模式：可选增强渲染层，默认关闭） ---
+// 关闭时 body 上无 showcase-mode class，新增层全部 display:none，
+// UI 与旧版逐像素一致。开启后新增（参数 = 设计案例 v2.1 定稿值）：
+//   1) 环内星尘画布：低密度 8 粒上升光尘 + 1 颗环内游星（带拖尾）
+//   2) 最外圈 1 颗游星（CSS 动画，贴球体外缘反向慢转）
+//   3) 进度弧末端小亮点（白色辉光点，位置跟随球面进度）
+//   4) 环光晕收敛版（1.5px 贴身 + 4px 低透明扩散）
+// 性能约束：粒子引擎只在「球态 + 观赏模式」运行；DPR 钳制 ≤ 2；
+// 30fps 节流；页面隐藏自动停帧；prefers-reduced-motion 下只画静态一帧；
+// 粒子「外晕+亮核」预烘焙为离屏精灵，每帧仅 drawImage 位图拷贝，
+// 主题色/精灵全部缓存于 fxState，热路径零 DOM 查询。
+
+const SHOWCASE_KEY = "kqb-orb-showcase";
+const FX_PALETTE = {
+  abyss:   { motes: ["#86efac", "#c4b5fd", "#ffffff", "#a78bfa", "#4ade80"], orbit: "#a7f3d0" },
+  emerald: { motes: ["#d9f99d", "#86efac", "#ffffff", "#7dd3fc", "#fde68a"], orbit: "#fde68a" },
+  rainbow: { motes: ["#fda4af", "#fde68a", "#86efac", "#7dd3fc", "#c4b5fd"], orbit: "#fda4af" },
+};
+const FX_MOTES = 8; // 低密度档（用户定稿）
+const FX_REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let showcaseOn = false;
+try { showcaseOn = localStorage.getItem(SHOWCASE_KEY) === "1"; } catch (e) { /* ignore */ }
+
+function currentFxTheme() {
+  for (const t of ORB_THEMES) {
+    if (document.body.classList.contains("theme-" + t)) return FX_PALETTE[t];
+  }
+  return FX_PALETTE.abyss;
+}
+
+let fxState = null; // { ctx, R, dpr, palette, sprites, headSprite, orbitSprite, motes, orbiter, raf, last }
+
+// 粒子精灵预烘焙：把「外晕(alpha 0.3) + 亮核」按每尺寸单位 K 像素画进
+// 离屏画布一次，运行时每帧只需 drawImage（路径 arc/fill 是逐帧最贵的调用，
+// 烘焙后 20 次路径绘制降为 12 次位图拷贝，观感与原绘制逐像素等价）。
+const FX_K = 12; // 每粒子尺寸单位烘焙的像素数（最大粒 ~2.5 → 源图 ~60px，清晰）
+function fxBakeSprite(color, withHalo, dpr) {
+  const box = Math.ceil(FX_K * 2.4 * 2);
+  const cv = document.createElement("canvas");
+  cv.width = box * dpr;
+  cv.height = box * dpr;
+  const c = cv.getContext("2d");
+  c.scale(dpr, dpr);
+  if (withHalo) {
+    c.globalAlpha = 0.3;
+    c.fillStyle = color;
+    c.beginPath(); c.arc(box / 2, box / 2, FX_K * 2.4, 0, 7); c.fill();
+  }
+  c.globalAlpha = 1;
+  c.fillStyle = color;
+  c.beginPath(); c.arc(box / 2, box / 2, FX_K, 0, 7); c.fill();
+  return { cv, box };
+}
+// 按当前主题重建整套精灵（启动 + 换主题各一次，数量极少可忽略）
+function fxBakeAll(dpr) {
+  const palette = currentFxTheme();
+  const sprites = {};
+  for (const color of palette.motes) sprites[color] = fxBakeSprite(color, true, dpr);
+  return {
+    palette, sprites,
+    headSprite: fxBakeSprite("#ffffff", false, dpr),
+    orbitSprite: fxBakeSprite(palette.orbit, false, dpr),
+  };
+}
+
+// 上升光尘：圆盘内均匀生成，上浮 + 左右微摆 + 闪烁，出顶后从底部回收
+function fxSpawnMote(anywhere) {
+  const R = fxState.R;
+  const ang = Math.random() * Math.PI * 2;
+  const rr = Math.sqrt(Math.random()) * 0.92;
+  const pal = fxState.palette.motes;
+  return {
+    x: R + Math.cos(ang) * rr * R,
+    y: anywhere ? R + Math.sin(ang) * rr * R : R * 1.9,
+    vy: 10 + Math.random() * 16, // px/s 上浮
+    sway: 2 + Math.random() * 4,
+    swaySpd: 0.6 + Math.random() * 1.2,
+    sz: 1.1 + Math.random() * 1.4,
+    tw: Math.random() * Math.PI * 2,
+    twSpd: 1.5 + Math.random() * 2.5,
+    color: pal[(Math.random() * pal.length) | 0],
+  };
+}
+
+function fxDraw(t, dt) {
+  const { ctx, R, sprites } = fxState;
+  const box = R * 2;
+  ctx.clearRect(0, 0, box, box);
+  ctx.globalCompositeOperation = "lighter"; // additive：亮而不脏
+  for (const p of fxState.motes) {
+    p.y -= p.vy * dt;
+    if (p.y < -4) Object.assign(p, fxSpawnMote(false));
+    const x = p.x + Math.sin(t * p.swaySpd + p.tw) * p.sway;
+    ctx.globalAlpha = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(p.tw + t * p.twSpd));
+    const spr = sprites[p.color];
+    const w = (spr.box * p.sz) / FX_K;
+    ctx.drawImage(spr.cv, x - w / 2, p.y - w / 2, w, w);
+  }
+  // 环内游星 1 颗：贴内缘游走 + 渐隐拖尾
+  const o = fxState.orbiter;
+  o.a += o.spd * dt;
+  const pulse = 0.55 + 0.45 * Math.sin(o.tw + t * 2);
+  for (let k = 3; k >= 0; k--) {
+    const a2 = o.a - o.spd * k * 0.06;
+    const x = R + Math.cos(a2) * o.r * R;
+    const y = R + Math.sin(a2) * o.r * R;
+    ctx.globalAlpha = Math.max((1 - k / 4) * pulse, 0) * (k === 0 ? 1 : 0.35);
+    const spr = k === 0 ? fxState.headSprite : fxState.orbitSprite;
+    const w = (spr.box * o.sz * (k === 0 ? 1 : 0.8)) / FX_K;
+    ctx.drawImage(spr.cv, x - w / 2, y - w / 2, w, w);
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function fxLoop(ts) {
+  if (!fxState) return;
+  if (!fxState.last) fxState.last = ts;
+  const dtAll = (ts - fxState.last) / 1000;
+  // 30fps 节流：粒子运动缓慢，30fps 与高刷观感一致，绘制量减半省 CPU
+  if (dtAll < 1 / 30) {
+    fxState.raf = requestAnimationFrame(fxLoop);
+    return;
+  }
+  const dt = Math.min(dtAll, 0.05);
+  fxState.last = ts;
+  fxDraw(ts / 1000, dt);
+  fxState.raf = requestAnimationFrame(fxLoop);
+}
+
+function startOrbFx() {
+  if (fxState) return;
+  const canvas = document.querySelector(".orb-fx");
+  if (!canvas) return;
+  // 球径以 :root 的 --orb-size 为准（与 Rust 侧 BALL_SIZE 对应）
+  const size =
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--orb-size")) || 60;
+  const box = Math.max(20, Math.round(size * 0.68)); // inset 16% → 画布为球的 68%
+  const dpr = Math.min(window.devicePixelRatio || 1, 2); // DPR 钳制，避免 Retina 过采样
+  canvas.width = box * dpr;
+  canvas.height = box * dpr;
+  canvas.style.width = box + "px";
+  canvas.style.height = box + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  fxState = {
+    ctx, R: box / 2, dpr, raf: 0, last: 0,
+    ...fxBakeAll(dpr), // palette + sprites + headSprite + orbitSprite
+    motes: Array.from({ length: FX_MOTES }, () => null),
+    orbiter: {
+      a: Math.random() * Math.PI * 2,
+      r: 0.52, spd: 0.5, sz: 1.4,
+      tw: Math.random() * Math.PI * 2,
+    },
+  };
+  fxState.motes = fxState.motes.map(() => fxSpawnMote(true));
+  if (FX_REDUCED) { fxDraw(0, 0); return; } // 降级：静态一帧，不进循环
+  fxState.raf = requestAnimationFrame(fxLoop);
+}
+
+function stopOrbFx() {
+  if (!fxState) return;
+  cancelAnimationFrame(fxState.raf);
+  const { ctx, R } = fxState;
+  ctx.clearRect(0, 0, R * 2, R * 2);
+  fxState = null;
+}
+
+// 粒子引擎的总开关：球态 + 观赏模式才运行，其余情况一律停帧清屏。
+function syncFx() {
+  if (showcaseOn && document.body.classList.contains("ball-mode")) startOrbFx();
+  else stopOrbFx();
+}
+
+// 主题切换时环内星尘换色（applyOrbTheme 调用）：重建精灵并重刷粒子颜色
+function refreshFxColors() {
+  if (!fxState) return;
+  Object.assign(fxState, fxBakeAll(fxState.dpr));
+  const pal = fxState.palette.motes;
+  for (const p of fxState.motes) p.color = pal[(Math.random() * pal.length) | 0];
+  if (FX_REDUCED) fxDraw(0, 0); // 静态降级模式下换主题也要重绘那一帧
+}
+
+// 托盘菜单直推的开关入口；状态持久化，重启后由 sync_menus 回写勾选态。
+function applyShowcase(on) {
+  showcaseOn = !!on;
+  document.body.classList.toggle("showcase-mode", showcaseOn);
+  try { localStorage.setItem(SHOWCASE_KEY, showcaseOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  syncFx();
+  return showcaseOn;
+}
+window.__kqbSetShowcase = applyShowcase;
+
+// 启动即恢复上次的开关状态（默认关闭 = 与旧版一致）。
+applyShowcase(showcaseOn);
+
+// 页面隐藏自动停帧；恢复可见且引擎仍在运行（球态 + 观赏模式）时继续。
+document.addEventListener("visibilitychange", () => {
+  if (!fxState) return;
+  if (document.hidden) {
+    cancelAnimationFrame(fxState.raf);
+    fxState.last = 0;
+  } else if (!FX_REDUCED) {
+    fxState.raf = requestAnimationFrame(fxLoop);
+  }
+});
+
+// 观赏模式弧末亮点：跟随球面进度角位置（关闭时 CSS 隐藏，仅改属性）。
+function setOrbTip(ratio) {
+  const tip = document.getElementById("orb-tip");
+  if (!tip) return;
+  if (ratio == null) {
+    tip.setAttribute("opacity", "0");
+    return;
+  }
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const ang = ((-90 + 360 * clamped) * Math.PI) / 180;
+  tip.setAttribute("cx", (36 + 30 * Math.cos(ang)).toFixed(2));
+  tip.setAttribute("cy", (36 + 30 * Math.sin(ang)).toFixed(2));
+  tip.setAttribute("opacity", "1");
+}
+
 // 启动时把前端持久化的主题 + 口径回写托盘勾选态（重启后菜单同步）。
-invoke("sync_menus", { theme: activeOrbTheme, metric: orbMetric }).catch(() => {});
+invoke("sync_menus", { theme: activeOrbTheme, metric: orbMetric, showcase: showcaseOn }).catch(() => {});
 
 // Ball gestures: a plain click expands the card; a real drag moves the ball
 // (dropping it away from the edge also expands, handled natively on Moved).

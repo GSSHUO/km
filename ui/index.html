@@ -159,14 +159,20 @@
        翡翠庭园 / 独角兽彩虹。主题由 body 上的 theme-* class 切换，
        配色定义在 style.css 的 theme-* 段落。层序（后 → 前）：
        orb-swirl 极光流转底光 → orb-particles 漂浮微粒 → orb-orbit 环绕星点
-       → orb-body 进度环 + 百分比（内容不变，id 不变）→ orb-burst 入场光爆。
-       无任何圈线描边层。 -->
+       → orb-fx 观赏模式环内星尘（默认隐藏）→ orb-outer-orbit 观赏模式
+       最外圈游星（默认隐藏）→ orb-body 进度环 + 百分比（内容不变，id 不变）
+       → orb-burst 入场光爆。
+       观赏模式（showcase-mode，托盘菜单开关，默认关闭）关闭时上述两个
+       增强层与弧末亮点完全不渲染，与旧版逐像素一致。无任何圈线描边层。 -->
   <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
     <div class="orb-swirl" aria-hidden="true"></div>
     <div class="orb-particles" aria-hidden="true">
-      <i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i><i class="p5"></i>
+      <i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i>
+      <i class="p5"></i><i class="p6"></i><i class="p7"></i><i class="p8"></i>
     </div>
     <div class="orb-orbit" aria-hidden="true"><i></i></div>
+    <canvas class="orb-fx" aria-hidden="true"></canvas>
+    <div class="orb-outer-orbit" aria-hidden="true"><i></i></div>
     <div class="orb-body">
       <svg viewBox="0 0 72 72">
         <defs>
@@ -192,6 +198,7 @@
         </defs>
         <circle class="track" cx="36" cy="36" r="30"/>
         <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
+        <circle class="tip" id="orb-tip" r="1.7" cx="36" cy="6" opacity="0"/>
       </svg>
       <span class="pct" id="pct-ball">–</span>
     </div>

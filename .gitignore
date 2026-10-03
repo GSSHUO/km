@@ -5,6 +5,9 @@ src-tauri/target/
 # 系统文件
 .DS_Store
 
+# 本地 agent 工具数据
+.workbuddy/
+
 # 日志与临时文件
 *.log
 

@@ -59,6 +59,7 @@ const METRIC_MENU_IDS: [&str; 2] = ["metric-total", "metric-5h"];
 struct TrayChecks {
     themes: [tauri::menu::CheckMenuItem<tauri::Wry>; 3],
     metrics: [tauri::menu::CheckMenuItem<tauri::Wry>; 2],
+    showcase: tauri::menu::CheckMenuItem<tauri::Wry>,
 }
 static TRAY_CHECKS: std::sync::OnceLock<TrayChecks> = std::sync::OnceLock::new();
 
@@ -276,16 +277,17 @@ fn dock_ball(window: tauri::WebviewWindow) {
     enter_ball(&window, edge);
 }
 
-/// Keep the tray checkmarks (orb theme + metric) in sync with the
+/// Keep the tray checkmarks (orb theme + metric + showcase) in sync with the
 /// frontend's persisted choices (e.g. after a relaunch restoring
 /// non-default selections).
 #[tauri::command]
-fn sync_menus(theme: String, metric: String) {
+fn sync_menus(theme: String, metric: String, showcase: bool) {
     let Some(checks) = TRAY_CHECKS.get() else { return };
     let theme_target = format!("theme-{theme}");
     sync_check_group(&checks.themes, &THEME_MENU_IDS, &theme_target);
     let metric_target = format!("metric-{metric}");
     sync_check_group(&checks.metrics, &METRIC_MENU_IDS, &metric_target);
+    let _ = checks.showcase.set_checked(showcase);
 }
 
 // ---------- quota fetch ----------
@@ -1057,13 +1059,19 @@ fn main() {
             let metric_menu = SubmenuBuilder::with_id(app, "metric", "悬浮球显示")
                 .items(&[&metric_total, &metric_5h])
                 .build()?;
+            // 观赏模式：可选增强渲染层（环内星尘 + 最外圈游星 + 弧末亮点），
+            // 默认关闭 = 与旧版渲染一致；勾选状态由前端 sync_menus 回写。
+            let showcase_item =
+                CheckMenuItemBuilder::with_id("showcase", "观赏模式（悬浮球增强渲染）")
+                    .build(app)?;
             let _ = TRAY_CHECKS.set(TrayChecks {
                 themes: [theme_abyss.clone(), theme_emerald.clone(), theme_rainbow.clone()],
                 metrics: [metric_total.clone(), metric_5h.clone()],
+                showcase: showcase_item.clone(),
             });
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&refresh_item, &theme_menu, &metric_menu, &quit_item])
+                .items(&[&refresh_item, &theme_menu, &metric_menu, &showcase_item, &quit_item])
                 .build()?;
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
             TrayIconBuilder::with_id("main-tray")
@@ -1099,6 +1107,17 @@ fn main() {
                             let _ = w.eval(&format!(
                                 "window.__kqbSetMetric && window.__kqbSetMetric('{metric}')"
                             ));
+                        }
+                    }
+                    "showcase" => {
+                        // 勾选态由菜单原生切换；把新状态直推前端（eval 通道）。
+                        if let Some(checks) = TRAY_CHECKS.get() {
+                            let on = checks.showcase.is_checked().unwrap_or(false);
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.eval(&format!(
+                                    "window.__kqbSetShowcase && window.__kqbSetShowcase({on})"
+                                ));
+                            }
                         }
                     }
                     "quit" => app.exit(0),
