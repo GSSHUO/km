@@ -1,9 +1,9 @@
 [package]
 name = "kimi-quota-bar"
-version = "0.1.4"
+version = "0.2.0"
 description = "Menu-bar card showing Kimi subscription quota usage"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.77.2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -23,6 +23,7 @@ sha2 = "0.10"
 dirs = "6"
 window-vibrancy = "0.6"
 tauri-plugin-liquid-glass = "0.1"
+tauri-plugin-clipboard-manager = "=2.3.0"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"

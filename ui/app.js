@@ -1,164 +1,253 @@
-/* Kimi Quota Bar — card renderer.
-   The card polls the native side via invoke("get_quota") every 60 s. */
+"use strict";
 
-function usageColor(ratio) {
-  if (ratio == null) return "#64748b";
-  if (ratio >= 0.8) return "#f87171";
-  if (ratio >= 0.5) return "#fbbf24";
-  return "#34d399";
-}
+const $ = (id) => document.getElementById(id);
+const Q = window.KQBQuota;
+const S = window.KQBSettings;
+const sandbox = new URLSearchParams(location.search).get("sandbox") === "1";
+const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
+const clone = S.clone;
 
-function setRing(id, ratio) {
-  const bar = document.getElementById("ring-" + id);
-  const pct = document.getElementById("pct-" + id);
-  if (!bar || !pct) return;
-  const r = Number(bar.getAttribute("r")) || 20;
-  const c = 2 * Math.PI * r;
-  bar.style.strokeDasharray = c;
-  if (ratio == null) {
-    bar.style.strokeDashoffset = c;
-    pct.textContent = "–";
-    // 球面弧末亮点（观赏模式）同步熄灭
-    if (id === "ball") setOrbTip(null);
-    return;
-  }
-  const clamped = Math.max(0, Math.min(1, ratio));
-  bar.style.strokeDashoffset = c * (1 - clamped);
-  // 球体进度环统一用极光渐变（CSS url(#orbGrad)），不按用量变色；
-  // 卡片三环仍按用量着色。
-  if (id !== "ball") bar.style.stroke = usageColor(clamped);
-  // 观赏模式弧末亮点跟随球面进度（关闭时 CSS 隐藏，更新无副作用）
-  if (id === "ball") setOrbTip(clamped);
-  pct.textContent = (clamped * 100).toFixed(2) + "%";
-}
-
-function setRowDisabled(id, disabled) {
-  const row = document.getElementById("ring-" + id).closest(".row");
-  row.classList.toggle("disabled", disabled);
-}
-
-function fmtReset(iso, mode) {
-  if (!iso) return "重置时间未知";
-  const t = new Date(iso);
-  if (isNaN(t)) return "重置时间未知";
-  const diffMs = t.getTime() - Date.now();
-  if (diffMs <= 0) return "即将重置…";
-  const mins = Math.floor(diffMs / 60000);
-  const hours = Math.floor(mins / 60);
-  const days = Math.floor(hours / 24);
-  if (mode === "date" || days > 6) {
-    return `${t.getMonth() + 1}/${String(t.getDate()).padStart(2, "0")} 重置`;
-  }
-  if (days >= 1) return `${days} 天 ${hours % 24} 小时后重置`;
-  if (hours >= 1) return `${hours} 小时 ${mins % 60} 分后重置`;
-  return `${mins} 分钟后重置`;
-}
-
-function fmtUpdated(unixSecs) {
-  const d = new Date(unixSecs * 1000);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function render(payload) {
-  lastPayload = payload; // 供悬浮球口径切换后立即重绘（declared with the metric block）
-  const dot = document.getElementById("statusDot");
-  const rows = document.getElementById("rows");
-  const errorBox = document.getElementById("errorBox");
-  const footer = document.getElementById("footer");
-
-  if (!payload || payload.ok !== true) {
-    dot.classList.add("err");
-    rows.classList.add("hidden");
-    errorBox.classList.remove("hidden");
-    document.getElementById("errorMsg").textContent =
-      (payload && payload.error) || "未知错误";
-    footer.textContent = "点击重试或稍候自动重试";
-    return;
-  }
-
-  dot.classList.remove("err");
-  errorBox.classList.add("hidden");
-  rows.classList.remove("hidden");
-
-  const five = payload.fiveHour || {};
-  const seven = payload.sevenDay || {};
-  const fiveOff = five.enabled === false;
-  const sevenOff = seven.enabled === false;
-
-  setRing("total", payload.total && payload.total.usedRatio);
-  // 球面进度按当前口径：总量（默认）或 5 小时窗口（未启用则置空）
-  setRing("ball", orbMetric === "5h"
-    ? (fiveOff ? null : five.usedRatio)
-    : payload.total && payload.total.usedRatio);
-  setRing("5h", fiveOff ? null : five.usedRatio);
-  setRing("7d", sevenOff ? null : seven.usedRatio);
-  setRowDisabled("5h", fiveOff);
-  setRowDisabled("7d", sevenOff);
-
-  document.getElementById("reset-total").textContent =
-    fmtReset(payload.total && payload.total.resetTime, "date");
-  document.getElementById("reset-5h").textContent = fiveOff
-    ? "未启用"
-    : fmtReset(five.resetTime, "rel");
-  document.getElementById("reset-7d").textContent = sevenOff
-    ? "未启用"
-    : fmtReset(seven.resetTime, "rel");
-
-  document.getElementById("updatedAt").textContent = payload.fetchedAt
-    ? fmtUpdated(payload.fetchedAt)
-    : "--";
-
-  const code = payload.total && payload.total.codeRatio;
-  footer.textContent =
-    code != null
-      ? `其中 Kimi Code 占 ${(code * 100).toFixed(2)}% · 每 60 秒自动刷新`
-      : "每 60 秒自动刷新";
-}
-
-async function poll() {
-  try {
-    const payload = await window.__TAURI__.core.invoke("get_quota");
-    render(payload);
-  } catch (e) {
-    render({ ok: false, error: "内部调用失败: " + String(e) });
-  }
-}
-window.__kqbPoll = poll;
-
-function manualRefresh() {
-  const btn = document.getElementById("refreshBtn");
-  btn.classList.add("spin");
-  setTimeout(() => btn.classList.remove("spin"), 1200);
-  poll();
-}
-
-// ---------- login panel ----------
-
-const CARD_H = 224;
-const LOGIN_H = 400;
-const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
-
+let config = null;
+let settings = null;
+let activeTheme = null;
+let payload = null;
+let scheduler = null;
+let nativeVisible = true;
+let ballMode = false;
+let currentPanel = "quota";
+let editor = null;
+let savingAppearance = false;
 let qrTimer = null;
 let qrTicket = null;
 let qrFailCount = 0;
 let smsTimer = null;
+let toastTimer = null;
+let lastFormGeneration = -1;
 
-function $(id) { return document.getElementById(id); }
-function showEl(el) { el.classList.remove("hidden"); }
-function hideEl(el) { el.classList.add("hidden"); }
-
-async function openLogin() {
-  showEl($("loginPanel"));
-  await invoke("set_card_height", { height: LOGIN_H });
-  startQrLogin();
+function toast(message) {
+  clearTimeout(toastTimer);
+  $("toast").textContent = message;
+  $("toast").classList.remove("hidden");
+  toastTimer = setTimeout(() => $("toast").classList.add("hidden"), 2600);
 }
 
-async function closeLogin() {
+function show(element) { element.classList.remove("hidden"); }
+function hide(element) { element.classList.add("hidden"); }
+
+function setRing(id, ratio) {
+  const bar = $(`ring-${id}`);
+  if (!bar) return;
+  const radius = Number(bar.getAttribute("r"));
+  const circumference = 2 * Math.PI * radius;
+  const valid = Q.finiteRatio(ratio);
+  bar.style.strokeDasharray = String(circumference);
+  bar.style.strokeDashoffset = String(valid == null ? circumference : circumference * (1 - valid));
+  if (id !== "ball") {
+    const band = Q.usageBand(valid);
+    bar.style.stroke = `var(--${band})`;
+  } else {
+    const point = Q.endpoint(valid);
+    $("orb-tip").setAttribute("cx", point.x.toFixed(2));
+    $("orb-tip").setAttribute("cy", point.y.toFixed(2));
+    $("orb-tip").setAttribute("opacity", point.visible ? "1" : "0");
+  }
+}
+
+function usableRatio(stat) {
+  if (!stat || stat.enabled === false || stat.valueStatus && stat.valueStatus !== "valid") return null;
+  return Q.finiteRatio(stat.usedRatio);
+}
+
+function render(nextPayload) {
+  if (nextPayload !== undefined) payload = nextPayload;
+  const data = payload && payload.ok === true ? payload : null;
+  const stale = Boolean(data && (data.stale || Q.isExpired(data)));
+  for (const metric of ["total", "5h", "7d"]) {
+    const { stat, label } = Q.metricInfo(data, metric);
+    const disabled = !stat || stat.enabled === false;
+    const ratio = usableRatio(stat);
+    setRing(metric, ratio);
+    $(`pct-${metric}`).textContent = Q.percent(ratio);
+    const row = $(`row-${metric}`);
+    row.disabled = disabled;
+    row.classList.toggle("disabled", disabled);
+    row.classList.toggle("selected", settings && settings.orb.metric === metric);
+    row.setAttribute("aria-label", `${label}${settings && settings.orb.metric === metric ? "，当前浮珠读数" : "，点击设为浮珠读数"}${disabled ? "，未启用" : ""}`);
+    let reset = "—";
+    if (stat) {
+      if (stat.enabled === false) reset = "未启用";
+      else if (stat.valueStatus && stat.valueStatus !== "valid") reset = stat.valueError || "数据异常";
+      else reset = Q.formatReset(stat.resetTime, metric === "total" ? "date" : "relative");
+    } else if (data) reset = "数据未知";
+    $(`reset-${metric}`).textContent = reset;
+    row.title = `${label} · ${reset}`;
+  }
+
+  const codeRatio = data && data.total && data.total.codeStatus !== "invalid" ? Q.finiteRatio(data.total.codeRatio) : null;
+  $("codeLine").textContent = `Kimi Code · ${codeRatio == null ? "—" : Q.percent(codeRatio)}`;
+  const dot = $("statusDot");
+  dot.className = "dot";
+  let status = "正在获取额度";
+  if (data) {
+    const time = Q.formatUpdated(data.fetchedAt);
+    status = stale ? `上次更新 ${time} · 暂未刷新` : `更新于 ${time}`;
+    if (data.error) dot.classList.add("stale");
+  } else if (payload && payload.error) {
+    status = "暂未获取额度";
+    dot.classList.add("err");
+  }
+  $("statusLine").textContent = status;
+
+  const showError = Boolean(payload && payload.error && (!data || payload.errorCategory === "auth"));
+  $("errorBox").classList.toggle("hidden", !showError);
+  if (showError) {
+    $("errorMsg").textContent = payload.error;
+    $("errorMsg").title = payload.error;
+    $("loginFromErrorBtn").classList.toggle("hidden", payload.errorCategory !== "auth" && !/登录/.test(payload.error));
+  }
+
+  const orbRatio = Q.orbRatio(data, settings ? settings.orb.metric : "total");
+  setRing("ball", orbRatio);
+  const selected = Q.metricInfo(data, settings ? settings.orb.metric : "total");
+  const orbText = orbRatio == null ? "—" : Q.percent(orbRatio);
+  $("pct-ball").textContent = orbText;
+  const stateMark = $("orbState");
+  stateMark.className = "orb-state";
+  if (stale) stateMark.classList.add("stale");
+  if (payload && payload.errorCategory === "auth") stateMark.classList.add("err");
+  const updated = data ? Q.formatUpdated(data.fetchedAt) : "暂无数据";
+  $("ball").title = `${selected.label}已用 ${orbText} · ${stale ? "上次数据 " : "更新于 "}${updated} · 点击展开`;
+  $("ball").setAttribute("aria-label", $("ball").title);
+}
+
+function applyConfig(next) {
+  config = next;
+  settings = clone(next.settings);
+  activeTheme = S.resolveTheme(next.presets, settings);
+  S.applyTheme(activeTheme);
+  KQBMotion.setState({ theme: activeTheme, preset: settings.motion.preset, ball: ballMode, visible: nativeVisible });
+  document.querySelectorAll("[data-orb-metric]").forEach((button) => button.classList.toggle("active", button.dataset.orbMetric === settings.orb.metric));
+  render();
+}
+
+async function persistSettings(next) {
+  if (sandbox) {
+    applyConfig({ ...config, settings: clone(next), revision: config.revision + 1 });
+    return true;
+  }
+  const result = await invoke("save_settings", { settings: next, expectedRevision: config.revision });
+  if (!result || result.ok !== true) {
+    toast(result && result.error || "设置未保存");
+    return false;
+  }
+  applyConfig({ ...config, settings: result.settings, revision: result.revision, needsMigration: false });
+  return true;
+}
+
+async function selectMetric(metric) {
+  if (!Q.METRICS[metric]) return;
+  const next = clone(settings);
+  next.orb.metric = metric;
+  settings.orb.metric = metric;
+  render();
+  hide($("moreMenu"));
+  await persistSettings(next);
+}
+
+function setRefreshing(on) {
+  $("refreshBtn").classList.toggle("spin", on);
+  $("refreshBtn").disabled = on;
+}
+
+async function onQuotaResult(result, manual) {
+  setRefreshing(false);
+  if (result && result.staleResponse) return;
+  if (result) render(result);
+  if (manual) toast(result && (result.ok || result.stale) ? "额度已更新" : `刷新失败：${result && result.error || "未知错误"}`);
+}
+
+async function refresh(manual) {
+  if (sandbox) return;
+  setRefreshing(true);
+  try { await scheduler.refresh(Boolean(manual)); }
+  finally { if (!scheduler.pending) setRefreshing(false); }
+}
+
+function updateVisibility() {
+  const visible = nativeVisible && !document.hidden;
+  KQBMotion.setState({ visible });
+  if (scheduler) scheduler.setVisible(visible);
+}
+
+window.__kqbBallMode = (on) => {
+  ballMode = Boolean(on);
+  document.body.classList.toggle("ball-mode", ballMode);
+  if (ballMode) {
+    stopQrPolling();
+    ["loginPanel", "profilePanel", "appearancePanel", "diagnosticsPanel", "confirmMask", "moreMenu"].forEach((id) => hide($(id)));
+    currentPanel = "quota";
+    editor = null;
+  }
+  KQBMotion.setState({ ball: ballMode });
+};
+
+function closePanels() {
+  ["loginPanel", "profilePanel", "appearancePanel", "diagnosticsPanel"].forEach((id) => hide($(id)));
+  hide($("confirmMask"));
+  hide($("moreMenu"));
   stopQrPolling();
-  hideEl($("loginPanel"));
-  await invoke("set_card_height", { height: CARD_H });
+}
+
+async function openPanel(name) {
+  closePanels();
+  show($("quotaView"));
+  const panel = $(`${name}Panel`);
+  show(panel);
+  hide($("quotaView"));
+  currentPanel = name;
+  if (!sandbox) await invoke("set_panel_layout", { layout: name });
+  if (name === "login") startQrLogin();
+}
+
+async function closePanel() {
+  closePanels();
+  show($("quotaView"));
+  currentPanel = "quota";
+  editor = null;
+  if (!sandbox) await invoke("set_panel_layout", { layout: "quota" });
   refreshSessionUI();
-  poll(); // refresh card (picks up a brand-new session right away)
+  render();
+}
+
+function toggleMore() {
+  const opening = $("moreMenu").classList.contains("hidden");
+  $("moreMenu").classList.toggle("hidden", !opening);
+  $("moreBtn").setAttribute("aria-expanded", String(opening));
+  if (!opening) hide($("metricChoices"));
+}
+
+async function refreshSessionUI() {
+  if (sandbox) return { ownSession: true };
+  let session = { ownSession: false };
+  try { session = await invoke("session_status"); } catch (_) {}
+  const loggedIn = Boolean(session && (session.ownSession || session.followingDesktop && !session.loggedOut));
+  $("accountBtn").classList.toggle("active", loggedIn);
+  return session;
+}
+window.__kqbSession = refreshSessionUI;
+
+async function onAccountClick() {
+  const session = await refreshSessionUI();
+  const loggedIn = session && (session.ownSession || session.followingDesktop && !session.loggedOut);
+  if (loggedIn) await openProfile(); else await openLogin();
+}
+
+async function openLogin() { await openPanel("login"); }
+
+function stopQrPolling() {
+  if (qrTimer) clearInterval(qrTimer);
+  qrTimer = null;
+  qrTicket = null;
 }
 
 function switchLoginTab(which) {
@@ -166,612 +255,480 @@ function switchLoginTab(which) {
   $("tabSms").classList.toggle("active", which === "sms");
   $("qrPane").classList.toggle("hidden", which !== "qr");
   $("smsPane").classList.toggle("hidden", which !== "sms");
+  if (which === "qr" && currentPanel === "login") startQrLogin(); else stopQrPolling();
 }
-
-// --- QR login ---
-
-function stopQrPolling() {
-  if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
-  qrTicket = null;
-}
-
-function setQrStatus(text) { $("qrStatus").textContent = text; }
 
 function drawQr(matrix, size) {
   const canvas = $("qrCanvas");
-  const ctx = canvas.getContext("2d");
+  const context = canvas.getContext("2d");
   const quiet = 2;
-  const total = size + quiet * 2;
-  const scale = canvas.width / total;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#16121f";
+  const scale = canvas.width / (size + quiet * 2);
+  context.fillStyle = "#fff"; context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#16121f";
   const lines = matrix.trim().split("\n");
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (lines[y] && lines[y][x] === "1") {
-        ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
-      }
-    }
+  for (let y = 0; y < size; y += 1) for (let x = 0; x < size; x += 1) {
+    if (lines[y] && lines[y][x] === "1") context.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
   }
 }
 
 async function startQrLogin() {
+  if (sandbox || currentPanel !== "login" || $("qrPane").classList.contains("hidden")) return;
   stopQrPolling();
   qrFailCount = 0;
-  hideEl($("qrRefreshBtn"));
-  setQrStatus("正在生成二维码…");
-  let r;
-  try {
-    r = await invoke("login_qr_create");
-  } catch (e) {
-    r = { ok: false, error: String(e) };
-  }
-  if (!r || r.ok !== true) {
-    setQrStatus("生成失败：" + ((r && r.error) || "未知错误"));
-    showEl($("qrRefreshBtn"));
+  hide($("qrRefreshBtn"));
+  $("qrStatus").textContent = "正在生成二维码…";
+  let result;
+  try { result = await invoke("login_qr_create"); } catch (error) { result = { ok: false, error: String(error) }; }
+  if (!result || result.ok !== true) {
+    $("qrStatus").textContent = `生成失败：${result && result.error || "未知错误"}`;
+    show($("qrRefreshBtn"));
     return;
   }
-  qrTicket = r.code;
-  drawQr(r.matrix, r.size);
-  setQrStatus("等待扫码…");
+  qrTicket = result.code;
+  drawQr(result.matrix, result.size);
+  $("qrStatus").textContent = "等待扫码…";
   qrTimer = setInterval(pollQr, 2000);
 }
 
 async function pollQr() {
-  if (!qrTicket) return;
-  let r;
-  try {
-    r = await invoke("login_qr_poll", { code: qrTicket });
-  } catch (e) {
-    r = { ok: false, error: String(e) };
-  }
-  if (!r || r.ok !== true) {
-    // Keep polling, but a persistent failure (e.g. session save error)
-    // must surface instead of leaving the panel stuck on "等待扫码…".
+  if (!qrTicket || currentPanel !== "login") return;
+  let result;
+  try { result = await invoke("login_qr_poll", { code: qrTicket }); } catch (error) { result = { ok: false, error: String(error) }; }
+  if (!result || result.ok !== true) {
     qrFailCount += 1;
-    if (qrFailCount >= 5) {
-      setQrStatus("连接异常：" + ((r && r.error) || "未知错误") + "（重试中…）");
-    }
+    if (qrFailCount >= 5) $("qrStatus").textContent = `连接异常：${result && result.error || "未知错误"}（重试中…）`;
     return;
   }
   qrFailCount = 0;
-  if (r.status === "STATUS_SCANNED") {
-    setQrStatus("已扫码，请在手机上确认登录…");
-  } else if (r.status === "STATUS_EXPIRED") {
+  if (result.status === "STATUS_SCANNED") $("qrStatus").textContent = "已扫码，请在手机上确认登录…";
+  else if (result.status === "STATUS_EXPIRED") { stopQrPolling(); $("qrStatus").textContent = "二维码已过期"; show($("qrRefreshBtn")); }
+  else if (result.status === "STATUS_SUCCESS") {
     stopQrPolling();
-    setQrStatus("二维码已过期");
-    showEl($("qrRefreshBtn"));
-  } else if (r.status === "STATUS_SUCCESS") {
-    stopQrPolling();
-    setQrStatus("登录成功！");
+    $("qrStatus").textContent = "登录成功！";
     await refreshSessionUI();
-    setTimeout(closeLogin, 600);
+    setTimeout(closePanel, 500);
   }
 }
-
-// --- SMS login ---
 
 function setSmsError(text) { $("smsError").textContent = text || ""; }
 
-function mapSmsSendError(err) {
-  if (/CAPTCHA/i.test(err)) {
-    return "服务端要求人机验证，请点下方「官方网页登录」完成短信验证";
-  }
-  return err;
-}
-
 async function sendSmsCode() {
-  const cc = $("smsCC").value.trim().replace(/\D/g, "") || "86";
-  const phone = $("smsPhone").value.trim();
-  if (!/^\d{5,15}$/.test(phone)) {
-    setSmsError("请输入正确的手机号");
-    return;
-  }
+  const countryCode = $("smsCC").value.trim().replace(/\D/g, "") || "86";
+  const number = $("smsPhone").value.trim();
+  if (!/^\d{5,15}$/.test(number)) return setSmsError("请输入正确的手机号");
   $("smsSendBtn").disabled = true;
   setSmsError("");
-  let r;
-  try {
-    r = await invoke("login_sms_send", { countryCode: cc, number: phone });
-  } catch (e) {
-    r = { ok: false, error: String(e) };
-  }
-  if (r && r.ok === true) {
-    startSmsCountdown(60);
-  } else {
+  let result;
+  try { result = await invoke("login_sms_send", { countryCode, number }); } catch (error) { result = { ok: false, error: String(error) }; }
+  if (result && result.ok) startSmsCountdown(60);
+  else {
     $("smsSendBtn").disabled = false;
-    setSmsError(mapSmsSendError((r && r.error) || "发送失败"));
+    const error = result && result.error || "发送失败";
+    setSmsError(/CAPTCHA/i.test(error) ? "服务端要求人机验证，请使用下方官方网页登录" : error);
   }
 }
 
-function startSmsCountdown(secs) {
-  if (smsTimer) clearInterval(smsTimer);
-  let left = secs;
-  const btn = $("smsSendBtn");
-  btn.disabled = true;
-  btn.textContent = `${left}s 后重发`;
+function startSmsCountdown(seconds) {
+  clearInterval(smsTimer);
+  let left = seconds;
+  $("smsSendBtn").textContent = `${left}s 后重发`;
   smsTimer = setInterval(() => {
     left -= 1;
     if (left <= 0) {
-      clearInterval(smsTimer);
-      smsTimer = null;
-      btn.disabled = false;
-      btn.textContent = "发送验证码";
-    } else {
-      btn.textContent = `${left}s 后重发`;
-    }
+      clearInterval(smsTimer); smsTimer = null;
+      $("smsSendBtn").disabled = false; $("smsSendBtn").textContent = "发送验证码";
+    } else $("smsSendBtn").textContent = `${left}s 后重发`;
   }, 1000);
 }
 
 async function submitSmsLogin() {
-  const cc = $("smsCC").value.trim().replace(/\D/g, "") || "86";
-  const phone = $("smsPhone").value.trim();
-  const code = $("smsCode").value.trim();
-  if (!/^\d{4,8}$/.test(code)) {
-    setSmsError("请输入短信验证码");
-    return;
-  }
+  const countryCode = $("smsCC").value.trim().replace(/\D/g, "") || "86";
+  const number = $("smsPhone").value.trim();
+  const verifyCode = $("smsCode").value.trim();
+  if (!/^\d{4,8}$/.test(verifyCode)) return setSmsError("请输入短信验证码");
   $("smsLoginBtn").disabled = true;
-  setSmsError("");
-  let r;
-  try {
-    r = await invoke("login_sms_verify", { countryCode: cc, number: phone, verifyCode: code });
-  } catch (e) {
-    r = { ok: false, error: String(e) };
-  }
+  let result;
+  try { result = await invoke("login_sms_verify", { countryCode, number, verifyCode }); } catch (error) { result = { ok: false, error: String(error) }; }
   $("smsLoginBtn").disabled = false;
-  if (r && r.ok === true) {
-    await refreshSessionUI();
-    closeLogin();
-  } else {
-    setSmsError((r && r.error) || "登录失败");
-  }
+  if (result && result.ok) { await refreshSessionUI(); await closePanel(); refresh(true); }
+  else setSmsError(result && result.error || "登录失败");
 }
 
-// --- account state ---
-
-async function refreshSessionUI() {
-  let s = { ownSession: false };
-  try {
-    s = await invoke("session_status");
-  } catch (e) { /* keep default */ }
-  const loggedIn = !!(s && (s.ownSession || (s.followingDesktop && !s.loggedOut)));
-  $("accountBtn").classList.toggle("active", loggedIn);
-  return s;
-}
-
-// --- personal center ---
-
-const PROFILE_H = 320;
-
-const LEVEL_NAMES = {
-  LEVEL_FREE: "免费版",
-  LEVEL_BASIC: "基础会员",
-  LEVEL_INTERMEDIATE: "中级会员",
-  LEVEL_ADVANCED: "高级会员",
-};
+const LEVEL_NAMES = { LEVEL_FREE: "免费版", LEVEL_BASIC: "基础会员", LEVEL_INTERMEDIATE: "中级会员", LEVEL_ADVANCED: "高级会员" };
 const SOURCE_NAMES = { qr: "扫码登录", sms: "手机验证码登录", web: "网页登录" };
 
-function maskUid(uid) {
-  if (!uid) return "未知用户";
-  return uid.length > 12 ? uid.slice(0, 6) + "…" + uid.slice(-4) : uid;
-}
-
-function fmtDate(iso) {
-  if (!iso) return "--";
-  const t = new Date(iso);
-  if (isNaN(t)) return "--";
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+function formatDate(iso) {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return "—";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 async function openProfile() {
-  showEl($("profilePanel"));
-  await invoke("set_card_height", { height: PROFILE_H });
+  await openPanel("profile");
   $("profileUid").textContent = "加载中…";
-  $("profileSource").textContent = "";
-  let s;
-  try {
-    s = await invoke("get_profile");
-  } catch (e) {
-    s = { ok: false, error: String(e) };
-  }
-  const uid = s && s.userId;
-  $("profileAvatar").textContent = (uid ? String(uid)[0] : "K").toUpperCase();
-  $("profileUid").textContent = maskUid(uid);
-  $("profileSource").textContent = s && s.ownSession
-    ? (SOURCE_NAMES[s.source] || "本卡片登录")
-    : "跟随 Kimi 桌面客户端";
-  const m = s && s.membership;
-  if (m && (m.plan || m.level)) {
-    const level = LEVEL_NAMES[m.level] || m.level || "";
-    $("profilePlan").textContent = (m.plan || "--") + (level ? " · " + level : "");
-    $("profileStatus").textContent =
-      m.active === true || m.status === "SUBSCRIPTION_STATUS_ACTIVE" ? "生效中" : (m.status || "--");
-    $("profileExpire").textContent = fmtDate(m.periodEnd);
+  let result;
+  try { result = await invoke("get_profile"); } catch (error) { result = { error: String(error) }; }
+  const uid = result && result.userId ? String(result.userId) : "";
+  $("profileAvatar").textContent = (uid[0] || "K").toUpperCase();
+  $("profileUid").textContent = uid.length > 12 ? `${uid.slice(0, 6)}…${uid.slice(-4)}` : uid || "未知用户";
+  $("profileSource").textContent = result && result.ownSession ? SOURCE_NAMES[result.source] || "本卡片登录" : "跟随 Kimi 桌面客户端";
+  const membership = result && result.membership;
+  if (membership) {
+    const level = LEVEL_NAMES[membership.level] || membership.level || "";
+    $("profilePlan").textContent = `${membership.plan || "—"}${level ? ` · ${level}` : ""}`;
+    $("profileStatus").textContent = membership.active || membership.status === "SUBSCRIPTION_STATUS_ACTIVE" ? "生效中" : membership.status || "—";
+    $("profileExpire").textContent = formatDate(membership.periodEnd);
   } else {
-    $("profilePlan").textContent = "--";
-    $("profileStatus").textContent = "--";
-    $("profileExpire").textContent = "--";
+    $("profilePlan").textContent = "—"; $("profileStatus").textContent = "—"; $("profileExpire").textContent = "—";
   }
 }
 
-async function closeProfile() {
-  hideEl($("confirmMask"));
-  hideEl($("profilePanel"));
-  await invoke("set_card_height", { height: CARD_H });
-  refreshSessionUI();
+function updatePreview() {
+  if (!editor) return;
+  const theme = editor.resolved();
+  const preview = $("themePreview");
+  S.applyTheme(theme, preview);
+  preview.style.setProperty("--preview-bg", theme.palette.background);
+  preview.style.setProperty("--preview-surface", theme.palette.surface);
+  preview.style.setProperty("--preview-text", theme.palette.text);
+  preview.style.setProperty("--preview-accent", theme.palette.accent);
+  $("customThemeName").value = editor.custom() ? editor.custom().name : theme.label;
+  $("undoBtn").disabled = editor.index <= 0;
+  $("redoBtn").disabled = editor.index >= editor.history.length - 1;
 }
 
-async function onAccountClick() {
-  const s = await refreshSessionUI();
-  const loggedIn = s && (s.ownSession || (s.followingDesktop && !s.loggedOut));
-  if (loggedIn) {
-    openProfile();
+function renderPresetLists() {
+  const presetGrid = $("presetGrid");
+  presetGrid.replaceChildren();
+  editor.presets.forEach((preset) => {
+    const button = document.createElement("button");
+    button.className = `preset-item${editor.draft.theme.selectedId === preset.id ? " active" : ""}`;
+    const swatch = document.createElement("span"); swatch.className = "swatch";
+    swatch.style.setProperty("--swatch-a", preset.palette.gradient[0]);
+    swatch.style.setProperty("--swatch-b", preset.palette.gradient[preset.palette.gradient.length - 1]);
+    const label = document.createElement("span"); label.textContent = preset.label;
+    button.append(swatch, label);
+    button.addEventListener("click", () => { editor.selectPreset(preset.id); renderAppearance(); });
+    presetGrid.appendChild(button);
+  });
+  const customList = $("customList");
+  customList.replaceChildren();
+  if (!editor.draft.theme.customThemes.length) {
+    const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = "尚未保存自定义主题"; customList.appendChild(empty);
+  }
+  editor.draft.theme.customThemes.forEach((custom) => {
+    const button = document.createElement("button"); button.className = `custom-item${editor.draft.theme.selectedId === custom.id ? " active" : ""}`;
+    const base = editor.presets.find((item) => item.id === custom.basePresetId);
+    const swatch = document.createElement("span"); swatch.className = "swatch";
+    swatch.style.setProperty("--swatch-a", custom.overrides.accent || base.palette.accent);
+    swatch.style.setProperty("--swatch-b", custom.overrides.background || base.palette.background);
+    const label = document.createElement("span"); label.textContent = custom.name;
+    button.append(swatch, label);
+    button.addEventListener("click", () => { editor.draft.theme.selectedId = custom.id; editor.checkpoint(); renderAppearance(); });
+    customList.appendChild(button);
+  });
+}
+
+const FIELD_GROUPS = [
+  { id: "overall", label: "整体", colors: [["accent", "强调色"]], ranges: [["cardOpacity", "卡片透明度", .75, 1, .01], ["orbOpacity", "浮珠透明度", .75, 1, .01]], appearance: true },
+  { id: "orb", label: "浮珠", colors: [["orbBackground", "浮珠底色"], ["track", "轨道"], ["orbText", "数字"], ["glow", "光晕色"]], ranges: [["orbGlow", "光晕强度", 0, .5, .01]], gradient: true, particles: true },
+  { id: "card", label: "卡片", colors: [["background", "背景"], ["surface", "Surface"], ["border", "边线"], ["text", "主文字"], ["secondary", "副文字"], ["cardTrack", "额度环轨道"]] },
+  { id: "controls", label: "控件", colors: [["accent", "按钮强调"], ["buttonText", "按钮字色"], ["selected", "选中底色"], ["focus", "焦点色"]] },
+  { id: "status", label: "状态", colors: [["statusNormal", "正常"], ["statusWarning", "注意"], ["statusCritical", "接近上限"], ["statusUnknown", "未知"]] },
+];
+
+function colorField(key, label, value) {
+  const row = document.createElement("div"); row.className = "color-field";
+  const color = document.createElement("input"); color.type = "color"; color.value = value; color.setAttribute("aria-label", label);
+  const name = document.createElement("label"); name.textContent = label;
+  const hex = document.createElement("input"); hex.type = "text"; hex.value = value; hex.maxLength = 7; hex.setAttribute("aria-label", `${label} HEX`);
+  const update = (next) => {
+    if (!S.isHex(next)) return;
+    editor.setOverride(key, next.toUpperCase());
+    color.value = next; hex.value = next.toUpperCase(); updatePreview();
+  };
+  color.addEventListener("input", () => update(color.value));
+  hex.addEventListener("change", () => { if (S.isHex(hex.value)) update(hex.value); else { toast("请输入 #RRGGBB 色值"); hex.value = value; } });
+  row.append(color, name, hex); return row;
+}
+
+function rangeField(key, label, min, max, step, value) {
+  const row = document.createElement("div"); row.className = "range-field";
+  const name = document.createElement("label"); name.textContent = label;
+  const input = document.createElement("input"); Object.assign(input, { type: "range", min, max, step, value });
+  const output = document.createElement("span"); output.textContent = Number(value).toFixed(2);
+  input.addEventListener("input", () => { const number = Number(input.value); output.textContent = number.toFixed(2); editor.setOverride(key, number); updatePreview(); });
+  row.append(name, input, output); return row;
+}
+
+function renderThemeFields() {
+  const container = $("themeFields"); container.replaceChildren();
+  const theme = editor.resolved();
+  const custom = editor.custom();
+  if (!custom) {
+    const note = document.createElement("div"); note.className = "empty-state"; note.textContent = "修改任一字段时会自动从当前预设创建“我的主题”"; container.appendChild(note);
+  }
+  FIELD_GROUPS.forEach((group) => {
+    const section = document.createElement("section"); section.className = "field-group";
+    const header = document.createElement("div"); header.className = "field-group-header";
+    const title = document.createElement("b"); title.textContent = group.label;
+    const reset = document.createElement("button"); reset.textContent = "还原本组";
+    const keys = [...group.colors.map(([key]) => key), ...(group.ranges || []).map(([key]) => key)];
+    if (group.gradient) keys.push("gradient"); if (group.particles) keys.push("particles"); if (group.appearance) keys.push("appearance");
+    reset.addEventListener("click", () => { editor.resetGroup(keys); renderAppearance(); });
+    header.append(title, reset); section.appendChild(header);
+    if (group.appearance) {
+      const label = document.createElement("label"); label.className = "field-label"; label.textContent = "明 / 暗基调";
+      const select = document.createElement("select");
+      [["dark", "深色"], ["light", "浅色"]].forEach(([value, text]) => { const option = document.createElement("option"); option.value = value; option.textContent = text; select.appendChild(option); });
+      select.value = theme.appearance;
+      select.addEventListener("change", () => { editor.setOverride("appearance", select.value); renderAppearance(); });
+      label.appendChild(select); section.appendChild(label);
+    }
+    group.colors.forEach(([key, label]) => {
+      let value;
+      if (key.startsWith("status")) value = theme.status[key.replace("status", "").toLowerCase()];
+      else if (key === "orbBackground") value = theme.palette.orbBackground || theme.palette.background;
+      else value = theme.palette[key] || theme.palette.text;
+      section.appendChild(colorField(key, label, value));
+    });
+    (group.ranges || []).forEach(([key, label, min, max, step]) => section.appendChild(rangeField(key, label, min, max, step, theme.material[key])));
+    if (group.gradient) {
+      const title = document.createElement("div"); title.className = "section-title"; title.textContent = "渐变（2–5 色，等距停点）"; section.appendChild(title);
+      theme.palette.gradient.forEach((value, index) => {
+        const row = document.createElement("div"); row.className = "gradient-row";
+        const input = document.createElement("input"); input.type = "color"; input.value = value;
+        input.addEventListener("input", () => { const colors = [...editor.resolved().palette.gradient]; colors[index] = input.value.toUpperCase(); editor.setOverride("gradient", colors); updatePreview(); });
+        const label = document.createElement("span"); label.textContent = `${Math.round(index * 100 / (theme.palette.gradient.length - 1))}% · ${value}`;
+        const remove = document.createElement("button"); remove.textContent = "删除"; remove.disabled = theme.palette.gradient.length <= 2;
+        remove.addEventListener("click", () => { const colors = [...editor.resolved().palette.gradient]; colors.splice(index, 1); editor.setOverride("gradient", colors); renderAppearance(); });
+        row.append(input, label, remove); section.appendChild(row);
+      });
+      const add = document.createElement("button"); add.className = "secondary-btn"; add.textContent = "添加渐变色"; add.disabled = theme.palette.gradient.length >= 5;
+      add.addEventListener("click", () => { editor.setOverride("gradient", [...editor.resolved().palette.gradient, theme.palette.accent]); renderAppearance(); }); section.appendChild(add);
+    }
+    if (group.particles) {
+      const title = document.createElement("div"); title.className = "section-title"; title.textContent = "星尘粒子（2 色 + 主文字色）"; section.appendChild(title);
+      theme.palette.particles.forEach((value, index) => section.appendChild(colorField("particles", `粒子色 ${index + 1}`, value)));
+      const rows = [...section.querySelectorAll(".color-field")].slice(-2);
+      rows.forEach((row, index) => {
+        const color = row.querySelector('input[type="color"]'); const hex = row.querySelector('input[type="text"]');
+        color.replaceWith(color.cloneNode(true)); hex.replaceWith(hex.cloneNode(true));
+        const freshColor = row.querySelector('input[type="color"]'); const freshHex = row.querySelector('input[type="text"]');
+        const update = (next) => { if (!S.isHex(next)) return; const colors = [...editor.resolved().palette.particles]; colors[index] = next.toUpperCase(); editor.setOverride("particles", colors); renderAppearance(); };
+        freshColor.addEventListener("input", () => update(freshColor.value)); freshHex.addEventListener("change", () => update(freshHex.value));
+      });
+    }
+    container.appendChild(section);
+  });
+}
+
+function renderAppearance() {
+  if (!editor) return;
+  renderPresetLists(); renderThemeFields(); updatePreview();
+  document.querySelectorAll('input[name="motion"]').forEach((input) => { input.checked = input.value === editor.draft.motion.preset; });
+  $("materialMode").value = editor.draft.material.mode;
+}
+
+async function openAppearance() {
+  editor = new S.ThemeEditor(config);
+  await openPanel("appearance");
+  renderAppearance();
+}
+
+async function closeAppearance() {
+  if (savingAppearance) return;
+  editor = null;
+  await closePanel();
+}
+
+async function saveAppearance() {
+  if (!editor || savingAppearance) return;
+  savingAppearance = true;
+  const ok = await persistSettings(editor.draft);
+  savingAppearance = false;
+  if (ok) { toast("外观已保存"); editor = null; await closePanel(); }
+}
+
+async function openDiagnostics() {
+  await openPanel("diagnostics");
+  KQBMotion.resetStats();
+  let result;
+  try { result = await invoke("get_diagnostics"); } catch (error) { result = { error: String(error) }; }
+  result.frontendMotion = KQBMotion.getStats();
+  $("diagnosticDetails").textContent = JSON.stringify(result, null, 2);
+  const summary = $("diagnosticSummary"); summary.replaceChildren();
+  const values = [
+    `应用版本 ${result.appVersion || "未知"}`,
+    `材质 ${result.window && result.window.material && result.window.material.mode || "未知"}`,
+    `尺寸 ${result.window && result.window.logicalSize ? `${result.window.logicalSize.width}×${result.window.logicalSize.height}` : "未知"} · DPI ${result.window && result.window.scaleFactor || "—"}`,
+    `主题 ${result.theme || activeTheme.label} · 动效 ${result.motion || settings.motion.preset}`,
+    `最后成功 ${result.quota && result.quota.lastSuccessAt ? Q.formatUpdated(result.quota.lastSuccessAt, true) : "—"}`,
+  ];
+  values.forEach((value) => { const line = document.createElement("div"); line.textContent = value; summary.appendChild(line); });
+}
+
+function bindAppearance() {
+  document.querySelectorAll("[data-appearance-tab]").forEach((button) => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-appearance-tab]").forEach((item) => item.classList.toggle("active", item === button));
+    for (const name of ["Theme", "Parts", "Motion"]) $(`appearance${name}Tab`).classList.toggle("hidden", button.dataset.appearanceTab !== name.toLowerCase());
+  }));
+  $("appearanceBackBtn").addEventListener("click", closeAppearance);
+  $("cancelAppearanceBtn").addEventListener("click", closeAppearance);
+  $("saveAppearanceBtn").addEventListener("click", saveAppearance);
+  $("saveAsThemeBtn").addEventListener("click", () => { try { editor.createCustom($("customThemeName").value); renderAppearance(); } catch (error) { toast(error.message); } });
+  $("customThemeName").addEventListener("change", () => { editor.rename($("customThemeName").value); renderAppearance(); });
+  $("undoBtn").addEventListener("click", () => { editor.undo(); renderAppearance(); });
+  $("redoBtn").addEventListener("click", () => { editor.redo(); renderAppearance(); });
+  $("resetBaseBtn").addEventListener("click", () => { editor.resetBase(); renderAppearance(); });
+  $("exportThemeBtn").addEventListener("click", async () => {
+    const text = editor.exportText(); $("themeText").value = text;
+    if (!sandbox) { const result = await invoke("copy_theme_text", { text }); toast(result.ok ? "主题文本已复制" : result.error); }
+  });
+  $("importThemeBtn").addEventListener("click", () => { try { editor.importText($("themeText").value); renderAppearance(); toast("主题已导入草稿，保存后生效"); } catch (error) { toast(error.message); } });
+  document.querySelectorAll('input[name="motion"]').forEach((input) => input.addEventListener("change", () => { editor.draft.motion.preset = input.value; editor.checkpoint(); updatePreview(); }));
+  $("materialMode").addEventListener("change", () => { editor.draft.material.mode = $("materialMode").value; editor.checkpoint(); });
+}
+
+function bindEvents() {
+  $("refreshBtn").addEventListener("click", () => refresh(true));
+  $("retryBtn").addEventListener("click", () => refresh(true));
+  $("accountBtn").addEventListener("click", onAccountClick);
+  $("loginFromErrorBtn").addEventListener("click", openLogin);
+  $("moreBtn").addEventListener("click", (event) => { event.stopPropagation(); toggleMore(); });
+  $("hideCardBtn").addEventListener("click", () => invoke("hide_card"));
+  $("appearanceBtn").addEventListener("click", openAppearance);
+  $("diagnosticsBtn").addEventListener("click", openDiagnostics);
+  $("diagnosticsBackBtn").addEventListener("click", closePanel);
+  $("orbDisplayBtn").addEventListener("click", () => {
+    const opening = $("metricChoices").classList.contains("hidden");
+    $("metricChoices").classList.toggle("hidden", !opening);
+    $("orbDisplayBtn").setAttribute("aria-expanded", String(opening));
+  });
+  document.querySelectorAll("[data-orb-metric]").forEach((button) => button.addEventListener("click", () => selectMetric(button.dataset.orbMetric)));
+  document.querySelectorAll(".quota-row").forEach((row) => row.addEventListener("click", () => selectMetric(row.dataset.metric)));
+  $("copySummaryBtn").addEventListener("click", async () => { hide($("moreMenu")); const result = await invoke("copy_quota_summary"); toast(result.ok ? "额度摘要已复制" : result.error); });
+  $("copyDiagnosticsBtn").addEventListener("click", async () => { const result = await invoke("copy_diagnostics"); toast(result.ok ? "脱敏诊断已复制" : result.error); });
+  $("dockBtn").addEventListener("click", () => invoke("dock_ball"));
+  $("loginCloseBtn").addEventListener("click", closePanel);
+  $("profileCloseBtn").addEventListener("click", closePanel);
+  $("tabQr").addEventListener("click", () => switchLoginTab("qr"));
+  $("tabSms").addEventListener("click", () => switchLoginTab("sms"));
+  $("qrRefreshBtn").addEventListener("click", startQrLogin);
+  $("smsSendBtn").addEventListener("click", sendSmsCode);
+  $("smsLoginBtn").addEventListener("click", submitSmsLogin);
+  $("webLoginBtn").addEventListener("click", () => invoke("open_web_login"));
+  $("logoutBtn").addEventListener("click", async () => {
+    const session = await refreshSessionUI();
+    $("confirmText").textContent = session && session.ownSession ? "退出后卡片将显示未登录状态。" : "仅退出本卡片的登录，Kimi 桌面客户端不受影响。";
+    show($("confirmMask")); $("confirmCancelBtn").focus();
+  });
+  $("confirmCancelBtn").addEventListener("click", () => hide($("confirmMask")));
+  $("confirmOkBtn").addEventListener("click", async () => {
+    hide($("confirmMask")); await invoke("logout"); payload = null; render(); await closePanel(); refresh(true);
+  });
+  document.addEventListener("click", (event) => { if (!event.target.closest("#moreMenu, #moreBtn")) hide($("moreMenu")); });
+  document.querySelectorAll(".drag-region").forEach((region) => region.addEventListener("mousedown", (event) => {
+    if (event.button === 0 && !event.target.closest("button, input, .quota-row")) invoke("start_drag");
+  }));
+  document.querySelector(".title").addEventListener("dblclick", () => invoke("dock_ball"));
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("confirmMask").classList.contains("hidden")) hide($("confirmMask"));
+    else if (!$("moreMenu").classList.contains("hidden")) hide($("moreMenu"));
+    else if (currentPanel === "appearance") closeAppearance();
+    else if (currentPanel !== "quota") closePanel();
+    else if (!ballMode) invoke("hide_card");
+  });
+  document.addEventListener("visibilitychange", updateVisibility);
+  bindAppearance();
+}
+
+function bindBallGestures() {
+  let down = null;
+  let dragging = false;
+  $("ball").addEventListener("mousedown", (event) => { if (event.button === 0) { down = { x: event.clientX, y: event.clientY }; dragging = false; } });
+  $("ball").addEventListener("mousemove", (event) => {
+    if (down && !dragging && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 6) { dragging = true; invoke("start_drag"); }
+  });
+  window.addEventListener("mouseup", () => { down = null; });
+  $("ball").addEventListener("click", () => { if (!dragging) invoke("expand_card"); dragging = false; });
+  $("ball").addEventListener("keydown", (event) => {
+    if (["Enter", " "].includes(event.key)) { event.preventDefault(); invoke("expand_card"); }
+  });
+}
+
+async function listenNative() {
+  if (sandbox) return;
+  await window.__TAURI__.event.listen("settings-changed", (event) => {
+    if (currentPanel === "appearance" && !savingAppearance) {
+      editor = null; closePanel(); toast("设置已在其他入口变化，未保存草稿已放弃");
+    }
+    applyConfig(event.payload);
+  });
+  const handleForm = (data) => {
+    if (typeof data.visible === "boolean") { nativeVisible = data.visible; updateVisibility(); }
+    if (data.generation != null && data.generation === lastFormGeneration) return;
+    if (data.generation != null) lastFormGeneration = data.generation;
+    window.__kqbBallMode(data.form === "ball");
+  };
+  await window.__TAURI__.event.listen("app-visibility", (event) => handleForm(event.payload));
+  await window.__TAURI__.event.listen("form-changed", (event) => handleForm(event.payload));
+  await window.__TAURI__.event.listen("session-changed", () => { payload = null; render(); refreshSessionUI(); refresh(false); });
+}
+
+async function init() {
+  bindEvents(); bindBallGestures();
+  if (sandbox) {
+    document.body.classList.add("sandbox");
+    const presets = await fetch("themes.json").then((response) => response.json());
+    config = { presets, settings: S.defaults(), revision: 0 };
+    applyConfig(config);
+    render(null);
   } else {
-    openLogin();
+    config = await invoke("get_ui_config");
+    if (config.needsMigration) {
+      let legacy = {};
+      try {
+        legacy = {
+          theme: localStorage.getItem("kqb-orb-theme"),
+          metric: localStorage.getItem("kqb-orb-metric"),
+          showcase: localStorage.getItem("kqb-orb-showcase") === "1",
+        };
+      } catch (_) {}
+      await invoke("migrate_settings", legacy);
+      config = await invoke("get_ui_config");
+    }
+    applyConfig(config);
+    if (config.loadError) toast(config.loadError);
+    await listenNative();
+    refreshSessionUI();
+    scheduler = new Q.Scheduler(() => invoke("get_quota"), onQuotaResult, () => nativeVisible && !document.hidden);
+    scheduler.start();
   }
+  setInterval(() => render(), 60000);
 }
 
-// --- wiring ---
-
-document.getElementById("refreshBtn").addEventListener("click", manualRefresh);
-document.getElementById("retryBtn").addEventListener("click", manualRefresh);
-document.getElementById("loginFromErrorBtn").addEventListener("click", openLogin);
-document.getElementById("accountBtn").addEventListener("click", onAccountClick);
-document.getElementById("loginCloseBtn").addEventListener("click", closeLogin);
-document.getElementById("tabQr").addEventListener("click", () => switchLoginTab("qr"));
-document.getElementById("tabSms").addEventListener("click", () => switchLoginTab("sms"));
-document.getElementById("qrRefreshBtn").addEventListener("click", startQrLogin);
-document.getElementById("smsSendBtn").addEventListener("click", sendSmsCode);
-document.getElementById("smsLoginBtn").addEventListener("click", submitSmsLogin);
-document.getElementById("webLoginBtn").addEventListener("click", () => invoke("open_web_login"));
-document.getElementById("hideCardBtn").addEventListener("click", () => invoke("hide_card"));
-document.getElementById("profileCloseBtn").addEventListener("click", closeProfile);
-document.getElementById("logoutBtn").addEventListener("click", async () => {
-  // 二次确认：文案区分自有会话与跟随桌面客户端两种登录态。
-  const s = await refreshSessionUI();
-  $("confirmText").textContent = s && s.ownSession
-    ? "退出后卡片将显示未登录状态。"
-    : "仅退出本卡片的登录，Kimi 桌面客户端不受影响。";
-  showEl($("confirmMask"));
-});
-document.getElementById("confirmCancelBtn").addEventListener("click", () => hideEl($("confirmMask")));
-document.getElementById("confirmOkBtn").addEventListener("click", async () => {
-  hideEl($("confirmMask"));
-  await invoke("logout");
-  await refreshSessionUI();
-  closeProfile();
-  poll();
-});
-window.__kqbSession = refreshSessionUI;
-
-// Drag the window from anywhere on the card except interactive controls.
-document.querySelector(".card").addEventListener("mousedown", (e) => {
-  if (e.button !== 0 || e.target.closest("button, input, canvas, .login-panel, .profile-panel, .confirm-mask")) return;
-  window.__TAURI__.core.invoke("start_drag");
-});
-
-// --- ball mode (docked to the screen edge) ---
-
-// Native side notifies via BOTH event emit and a direct eval of this
-// function (eval survives the resize storm where events can get dropped).
-window.__kqbBallMode = (on) => {
-  document.body.classList.toggle("ball-mode", !!on);
-  if (on) {
-    // Fold panels WITHOUT closeLogin()/closeProfile(): those resize the
-    // window via set_card_height, which would instantly undo ball mode.
-    stopQrPolling();
-    hideEl($("loginPanel"));
-    hideEl($("profilePanel"));
-    hideEl($("confirmMask"));
-  }
-  // 观赏模式粒子引擎只在「球态 + 观赏模式」运行；展开卡片即停帧省电。
-  syncFx();
+window.__kqbRender = render;
+window.__kqbPoll = refresh;
+window.__kqbSetTheme = async (id) => { const next = clone(settings); next.theme.selectedId = id; return persistSettings(next); };
+window.__kqbSetMetric = selectMetric;
+window.__kqbSetShowcase = async (on) => { const next = clone(settings); next.motion.preset = on ? "stardust" : "lively"; return persistSettings(next); };
+window.__kqbDebug = {
+  getState: () => ({ config, settings, payload, ballMode, currentPanel, motion: KQBMotion.getStats() }),
+  openAppearance,
+  openDiagnostics,
+  selectMetric,
+  applyConfig,
 };
-window.__TAURI__.event.listen("ball-mode", (e) => window.__kqbBallMode(!!e.payload));
 
-// --- orb themes (悬浮球主题：深渊紫黑 / 翡翠庭园 / 独角兽彩虹) ---
-
-const ORB_THEMES = ["abyss", "emerald", "rainbow"];
-
-// 应用主题：切换 body 上的 theme-* class 并持久化到 localStorage。
-// 托盘菜单通过 __kqbSetTheme 直接调用（eval 通道，事件可能丢）。
-function applyOrbTheme(name) {
-  if (!ORB_THEMES.includes(name)) name = "abyss";
-  ORB_THEMES.forEach((t) => document.body.classList.remove("theme-" + t));
-  document.body.classList.add("theme-" + name);
-  try { localStorage.setItem("kqb-orb-theme", name); } catch (e) { /* private mode */ }
-  // 观赏模式环内星尘随主题换色。注意：启动时本函数先于 showcase 模块
-  // 的 let fxState 初始化被调用（TDZ），必须 try/catch 兜住，否则整个
-  // 脚本会在此中断、额度完全不渲染。
-  try { refreshFxColors(); } catch (e) { /* showcase 模块尚未初始化 */ }
-  return name;
-}
-window.__kqbSetTheme = applyOrbTheme;
-
-// 启动时恢复上次主题（默认深渊紫黑）。
-let savedOrbTheme = null;
-try { savedOrbTheme = localStorage.getItem("kqb-orb-theme"); } catch (e) { /* ignore */ }
-const activeOrbTheme = applyOrbTheme(savedOrbTheme);
-
-// --- orb metric (悬浮球显示口径：总量 / 5 小时窗口) ---
-
-const ORB_METRICS = ["total", "5h"];
-let lastPayload = null; // 最近一次 render 的原始数据，切口径时立即重绘球面
-
-function applyOrbMetric(metric) {
-  if (!ORB_METRICS.includes(metric)) metric = "total";
-  orbMetric = metric;
-  try { localStorage.setItem("kqb-orb-metric", metric); } catch (e) { /* ignore */ }
-  document.getElementById("ball").title =
-    (metric === "5h" ? "5 小时窗口用量" : "月度总量用量") + " — 点击展开";
-  if (lastPayload) render(lastPayload);
-}
-let orbMetric = "total";
-try { orbMetric = localStorage.getItem("kqb-orb-metric") || "total"; } catch (e) { /* ignore */ }
-window.__kqbSetMetric = applyOrbMetric;
-
-// --- orb showcase mode（观赏模式：可选增强渲染层，默认关闭） ---
-// 关闭时 body 上无 showcase-mode class，新增层全部 display:none，
-// UI 与旧版逐像素一致。开启后新增（参数 = 设计案例 v2.1 定稿值）：
-//   1) 环内星尘画布：低密度 8 粒上升光尘 + 1 颗环内游星（带拖尾）
-//   2) 最外圈 1 颗游星（CSS 动画，贴球体外缘反向慢转）
-//   3) 进度弧末端小亮点（白色辉光点，位置跟随球面进度）
-//   4) 环光晕收敛版（1.5px 贴身 + 4px 低透明扩散）
-// 性能约束：粒子引擎只在「球态 + 观赏模式」运行；DPR 钳制 ≤ 2；
-// 30fps 节流；页面隐藏自动停帧；prefers-reduced-motion 下只画静态一帧；
-// 粒子「外晕+亮核」预烘焙为离屏精灵，每帧仅 drawImage 位图拷贝，
-// 主题色/精灵全部缓存于 fxState，热路径零 DOM 查询。
-
-const SHOWCASE_KEY = "kqb-orb-showcase";
-const FX_PALETTE = {
-  abyss:   { motes: ["#86efac", "#c4b5fd", "#ffffff", "#a78bfa", "#4ade80"], orbit: "#a7f3d0" },
-  emerald: { motes: ["#d9f99d", "#86efac", "#ffffff", "#7dd3fc", "#fde68a"], orbit: "#fde68a" },
-  rainbow: { motes: ["#fda4af", "#fde68a", "#86efac", "#7dd3fc", "#c4b5fd"], orbit: "#fda4af" },
-};
-const FX_MOTES = 8; // 低密度档（用户定稿）
-const FX_REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-let showcaseOn = false;
-try { showcaseOn = localStorage.getItem(SHOWCASE_KEY) === "1"; } catch (e) { /* ignore */ }
-
-function currentFxTheme() {
-  for (const t of ORB_THEMES) {
-    if (document.body.classList.contains("theme-" + t)) return FX_PALETTE[t];
+window.addEventListener("message", (event) => {
+  if (!sandbox || !event.data || event.data.type !== "kqb-fixture") return;
+  if (event.data.theme) {
+    const next = clone(settings); next.theme.selectedId = event.data.theme; applyConfig({ ...config, settings: next });
   }
-  return FX_PALETTE.abyss;
-}
-
-let fxState = null; // { ctx, R, dpr, palette, sprites, headSprite, orbitSprite, motes, orbiter, raf, last }
-
-// 粒子精灵预烘焙：把「外晕(alpha 0.3) + 亮核」按每尺寸单位 K 像素画进
-// 离屏画布一次，运行时每帧只需 drawImage（路径 arc/fill 是逐帧最贵的调用，
-// 烘焙后 20 次路径绘制降为 12 次位图拷贝，观感与原绘制逐像素等价）。
-const FX_K = 12; // 每粒子尺寸单位烘焙的像素数（最大粒 ~2.5 → 源图 ~60px，清晰）
-function fxBakeSprite(color, withHalo, dpr) {
-  const box = Math.ceil(FX_K * 2.4 * 2);
-  const cv = document.createElement("canvas");
-  cv.width = box * dpr;
-  cv.height = box * dpr;
-  const c = cv.getContext("2d");
-  c.scale(dpr, dpr);
-  if (withHalo) {
-    c.globalAlpha = 0.3;
-    c.fillStyle = color;
-    c.beginPath(); c.arc(box / 2, box / 2, FX_K * 2.4, 0, 7); c.fill();
-  }
-  c.globalAlpha = 1;
-  c.fillStyle = color;
-  c.beginPath(); c.arc(box / 2, box / 2, FX_K, 0, 7); c.fill();
-  return { cv, box };
-}
-// 按当前主题重建整套精灵（启动 + 换主题各一次，数量极少可忽略）
-function fxBakeAll(dpr) {
-  const palette = currentFxTheme();
-  const sprites = {};
-  for (const color of palette.motes) sprites[color] = fxBakeSprite(color, true, dpr);
-  return {
-    palette, sprites,
-    headSprite: fxBakeSprite("#ffffff", false, dpr),
-    orbitSprite: fxBakeSprite(palette.orbit, false, dpr),
-  };
-}
-
-// 上升光尘：圆盘内均匀生成，上浮 + 左右微摆 + 闪烁，出顶后从底部回收
-function fxSpawnMote(anywhere) {
-  const R = fxState.R;
-  const ang = Math.random() * Math.PI * 2;
-  const rr = Math.sqrt(Math.random()) * 0.92;
-  const pal = fxState.palette.motes;
-  return {
-    x: R + Math.cos(ang) * rr * R,
-    y: anywhere ? R + Math.sin(ang) * rr * R : R * 1.9,
-    vy: 10 + Math.random() * 16, // px/s 上浮
-    sway: 2 + Math.random() * 4,
-    swaySpd: 0.6 + Math.random() * 1.2,
-    sz: 1.1 + Math.random() * 1.4,
-    tw: Math.random() * Math.PI * 2,
-    twSpd: 1.5 + Math.random() * 2.5,
-    color: pal[(Math.random() * pal.length) | 0],
-  };
-}
-
-function fxDraw(t, dt) {
-  const { ctx, R, sprites } = fxState;
-  const box = R * 2;
-  ctx.clearRect(0, 0, box, box);
-  ctx.globalCompositeOperation = "lighter"; // additive：亮而不脏
-  for (const p of fxState.motes) {
-    p.y -= p.vy * dt;
-    if (p.y < -4) Object.assign(p, fxSpawnMote(false));
-    const x = p.x + Math.sin(t * p.swaySpd + p.tw) * p.sway;
-    ctx.globalAlpha = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(p.tw + t * p.twSpd));
-    const spr = sprites[p.color];
-    const w = (spr.box * p.sz) / FX_K;
-    ctx.drawImage(spr.cv, x - w / 2, p.y - w / 2, w, w);
-  }
-  // 环内游星 1 颗：贴内缘游走 + 渐隐拖尾
-  const o = fxState.orbiter;
-  o.a += o.spd * dt;
-  const pulse = 0.55 + 0.45 * Math.sin(o.tw + t * 2);
-  for (let k = 3; k >= 0; k--) {
-    const a2 = o.a - o.spd * k * 0.06;
-    const x = R + Math.cos(a2) * o.r * R;
-    const y = R + Math.sin(a2) * o.r * R;
-    ctx.globalAlpha = Math.max((1 - k / 4) * pulse, 0) * (k === 0 ? 1 : 0.35);
-    const spr = k === 0 ? fxState.headSprite : fxState.orbitSprite;
-    const w = (spr.box * o.sz * (k === 0 ? 1 : 0.8)) / FX_K;
-    ctx.drawImage(spr.cv, x - w / 2, y - w / 2, w, w);
-  }
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
-}
-
-function fxLoop(ts) {
-  if (!fxState) return;
-  if (!fxState.last) fxState.last = ts;
-  const dtAll = (ts - fxState.last) / 1000;
-  // 30fps 节流：粒子运动缓慢，30fps 与高刷观感一致，绘制量减半省 CPU
-  if (dtAll < 1 / 30) {
-    fxState.raf = requestAnimationFrame(fxLoop);
-    return;
-  }
-  const dt = Math.min(dtAll, 0.05);
-  fxState.last = ts;
-  fxDraw(ts / 1000, dt);
-  fxState.raf = requestAnimationFrame(fxLoop);
-}
-
-function startOrbFx() {
-  if (fxState) return;
-  const canvas = document.querySelector(".orb-fx");
-  if (!canvas) return;
-  // 球径以 :root 的 --orb-size 为准（与 Rust 侧 BALL_SIZE 对应）
-  const size =
-    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--orb-size")) || 60;
-  const box = Math.max(20, Math.round(size * 0.68)); // inset 16% → 画布为球的 68%
-  const dpr = Math.min(window.devicePixelRatio || 1, 2); // DPR 钳制，避免 Retina 过采样
-  canvas.width = box * dpr;
-  canvas.height = box * dpr;
-  canvas.style.width = box + "px";
-  canvas.style.height = box + "px";
-  const ctx = canvas.getContext("2d");
-  ctx.scale(dpr, dpr);
-  fxState = {
-    ctx, R: box / 2, dpr, raf: 0, last: 0,
-    ...fxBakeAll(dpr), // palette + sprites + headSprite + orbitSprite
-    motes: Array.from({ length: FX_MOTES }, () => null),
-    orbiter: {
-      a: Math.random() * Math.PI * 2,
-      r: 0.52, spd: 0.5, sz: 1.4,
-      tw: Math.random() * Math.PI * 2,
-    },
-  };
-  fxState.motes = fxState.motes.map(() => fxSpawnMote(true));
-  if (FX_REDUCED) { fxDraw(0, 0); return; } // 降级：静态一帧，不进循环
-  fxState.raf = requestAnimationFrame(fxLoop);
-}
-
-function stopOrbFx() {
-  if (!fxState) return;
-  cancelAnimationFrame(fxState.raf);
-  const { ctx, R } = fxState;
-  ctx.clearRect(0, 0, R * 2, R * 2);
-  fxState = null;
-}
-
-// 粒子引擎的总开关：球态 + 观赏模式才运行，其余情况一律停帧清屏。
-function syncFx() {
-  if (showcaseOn && document.body.classList.contains("ball-mode")) startOrbFx();
-  else stopOrbFx();
-}
-
-// 主题切换时环内星尘换色（applyOrbTheme 调用）：重建精灵并重刷粒子颜色
-function refreshFxColors() {
-  if (!fxState) return;
-  Object.assign(fxState, fxBakeAll(fxState.dpr));
-  const pal = fxState.palette.motes;
-  for (const p of fxState.motes) p.color = pal[(Math.random() * pal.length) | 0];
-  if (FX_REDUCED) fxDraw(0, 0); // 静态降级模式下换主题也要重绘那一帧
-}
-
-// 托盘菜单直推的开关入口；状态持久化，重启后由 sync_menus 回写勾选态。
-function applyShowcase(on) {
-  showcaseOn = !!on;
-  document.body.classList.toggle("showcase-mode", showcaseOn);
-  try { localStorage.setItem(SHOWCASE_KEY, showcaseOn ? "1" : "0"); } catch (e) { /* ignore */ }
-  syncFx();
-  return showcaseOn;
-}
-window.__kqbSetShowcase = applyShowcase;
-
-// 启动即恢复上次的开关状态（默认关闭 = 与旧版一致）。
-applyShowcase(showcaseOn);
-
-// 页面隐藏自动停帧；恢复可见且引擎仍在运行（球态 + 观赏模式）时继续。
-document.addEventListener("visibilitychange", () => {
-  if (!fxState) return;
-  if (document.hidden) {
-    cancelAnimationFrame(fxState.raf);
-    fxState.last = 0;
-  } else if (!FX_REDUCED) {
-    fxState.raf = requestAnimationFrame(fxLoop);
-  }
+  if (event.data.motion) KQBMotion.setState({ preset: event.data.motion });
+  render(event.data.payload);
 });
-
-// 观赏模式弧末亮点：跟随球面进度角位置（关闭时 CSS 隐藏，仅改属性）。
-function setOrbTip(ratio) {
-  const tip = document.getElementById("orb-tip");
-  if (!tip) return;
-  if (ratio == null) {
-    tip.setAttribute("opacity", "0");
-    return;
-  }
-  const clamped = Math.max(0, Math.min(1, ratio));
-  const ang = ((-90 + 360 * clamped) * Math.PI) / 180;
-  tip.setAttribute("cx", (36 + 30 * Math.cos(ang)).toFixed(2));
-  tip.setAttribute("cy", (36 + 30 * Math.sin(ang)).toFixed(2));
-  tip.setAttribute("opacity", "1");
-}
-
-// 启动时把前端持久化的主题 + 口径回写托盘勾选态（重启后菜单同步）。
-invoke("sync_menus", { theme: activeOrbTheme, metric: orbMetric, showcase: showcaseOn }).catch(() => {});
-
-// Ball gestures: a plain click expands the card; a real drag moves the ball
-// (dropping it away from the edge also expands, handled natively on Moved).
-const ballEl = document.getElementById("ball");
-let ballDownAt = null;
-let ballDragging = false;
-ballEl.addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  ballDownAt = { x: e.clientX, y: e.clientY };
-  ballDragging = false;
-});
-ballEl.addEventListener("mousemove", (e) => {
-  if (!ballDownAt || ballDragging) return;
-  if (Math.hypot(e.clientX - ballDownAt.x, e.clientY - ballDownAt.y) > 6) {
-    ballDragging = true;
-    invoke("start_drag");
-  }
-});
-window.addEventListener("mouseup", () => {
-  if (ballDownAt && !ballDragging) invoke("expand_card");
-  ballDownAt = null;
-  ballDragging = false;
-});
-
-// Surface any JS error on the card itself (debug aid).
-window.addEventListener("error", (e) => {
-  const footer = document.getElementById("footer");
-  footer.textContent = "JS: " + e.message;
-  footer.style.opacity = "0.9";
-});
-
-// 双击标题「Kimi 额度」：展开态下自动吸附到最近的屏幕边缘缩成球。
-document.querySelector(".title").addEventListener("dblclick", () => {
-  invoke("dock_ball").catch(() => {});
-});
-
-poll();
-setInterval(poll, 60000);
-refreshSessionUI();
+window.addEventListener("error", (event) => { console.error(event.error || event.message); if (sandbox) $("statusLine").textContent = `演示错误：${event.message}`; });
+init().catch((error) => { console.error(error); $("statusLine").textContent = `初始化失败：${error.message || error}`; toast("初始化失败，请重新打开应用"); });

@@ -5,205 +5,135 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <div class="card">
-    <div class="header">
-      <div class="brand">
-        <span class="dot" id="statusDot"></span>
-        <span class="title">Kimi 额度</span>
-      </div>
-      <div class="header-right">
-        <span class="updated" id="updatedAt">--</span>
-        <button class="icon-btn" id="accountBtn" title="账号 / 登录">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
-          </svg>
-        </button>
-        <button class="icon-btn" id="refreshBtn" title="立即刷新">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
-          </svg>
-        </button>
-        <button class="icon-btn" id="hideCardBtn" title="关闭">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 6 6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="rows" id="rows">
-      <div class="row">
-        <div class="ring"><svg viewBox="0 0 48 48">
-          <circle class="track" cx="24" cy="24" r="20"/>
-          <circle class="bar" id="ring-total" cx="24" cy="24" r="20"/>
-        </svg><span class="pct" id="pct-total">–</span></div>
-        <div class="meta">
-          <div class="label">总量 · 月度额度</div>
-          <div class="sub" id="reset-total">--</div>
+<body class="theme-abyss motion-lively">
+  <main class="card" id="card">
+    <section id="quotaView" class="quota-view" aria-label="Kimi 额度">
+      <header class="header drag-region">
+        <div class="brand"><span class="dot" id="statusDot"></span><span class="title">Kimi 额度</span></div>
+        <div class="header-right">
+          <button class="icon-btn" id="accountBtn" title="账号 / 登录" aria-label="账号或登录">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+          </button>
+          <button class="icon-btn" id="refreshBtn" title="立即刷新" aria-label="立即刷新">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          </button>
+          <button class="icon-btn" id="moreBtn" title="更多" aria-label="更多" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+          </button>
+          <button class="icon-btn" id="hideCardBtn" title="隐藏" aria-label="隐藏卡片">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
         </div>
-      </div>
+      </header>
 
-      <div class="row">
-        <div class="ring"><svg viewBox="0 0 48 48">
-          <circle class="track" cx="24" cy="24" r="20"/>
-          <circle class="bar" id="ring-5h" cx="24" cy="24" r="20"/>
-        </svg><span class="pct" id="pct-5h">–</span></div>
-        <div class="meta">
-          <div class="label">5 小时窗口</div>
-          <div class="sub" id="reset-5h">--</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="ring"><svg viewBox="0 0 48 48">
-          <circle class="track" cx="24" cy="24" r="20"/>
-          <circle class="bar" id="ring-7d" cx="24" cy="24" r="20"/>
-        </svg><span class="pct" id="pct-7d">–</span></div>
-        <div class="meta">
-          <div class="label">7 天窗口</div>
-          <div class="sub" id="reset-7d">--</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="error hidden" id="errorBox">
-      <div class="error-msg" id="errorMsg">加载失败</div>
-      <button class="retry" id="retryBtn">重试</button>
-      <button class="retry" id="loginFromErrorBtn">去登录</button>
-    </div>
-
-    <div class="footer" id="footer">每 60 秒自动刷新</div>
-
-    <div class="login-panel hidden" id="loginPanel">
-      <div class="login-header">
-        <span class="login-title">登录 Kimi 账号</span>
-        <button class="icon-btn" id="loginCloseBtn" title="关闭">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 6 6 18M6 6l12 12"/>
-          </svg>
+      <div class="rows" id="rows">
+        <button class="quota-row selected" data-metric="total" id="row-total" aria-label="月度额度，当前浮珠读数">
+          <span class="ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="bar" id="ring-total" cx="24" cy="24" r="20"/></svg></span>
+          <span class="meta"><span class="label">月度额度<i class="current-marker"></i></span><span class="sub" id="reset-total">正在获取额度</span></span>
+          <span class="pct" id="pct-total">—</span>
+        </button>
+        <button class="quota-row" data-metric="5h" id="row-5h" aria-label="5小时窗口，点击设为浮珠读数">
+          <span class="ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="bar" id="ring-5h" cx="24" cy="24" r="20"/></svg></span>
+          <span class="meta"><span class="label">5小时窗口<i class="current-marker"></i></span><span class="sub" id="reset-5h">—</span></span>
+          <span class="pct" id="pct-5h">—</span>
+        </button>
+        <button class="quota-row" data-metric="7d" id="row-7d" aria-label="7天窗口，点击设为浮珠读数">
+          <span class="ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="bar" id="ring-7d" cx="24" cy="24" r="20"/></svg></span>
+          <span class="meta"><span class="label">7天窗口<i class="current-marker"></i></span><span class="sub" id="reset-7d">—</span></span>
+          <span class="pct" id="pct-7d">—</span>
         </button>
       </div>
 
-      <div class="login-tabs">
-        <button class="login-tab active" id="tabQr">扫码登录</button>
-        <button class="login-tab" id="tabSms">手机验证码</button>
-      </div>
+      <footer class="footer drag-region">
+        <div id="codeLine">Kimi Code · —</div>
+        <div id="statusLine">正在获取额度</div>
+        <div id="errorBox" class="inline-error hidden"><span id="errorMsg"></span><button id="retryBtn">重试</button><button id="loginFromErrorBtn">登录</button></div>
+      </footer>
+    </section>
 
+    <nav class="more-menu hidden" id="moreMenu" aria-label="更多操作">
+      <button id="appearanceBtn">外观<span>›</span></button>
+      <button id="orbDisplayBtn" aria-expanded="false">浮珠显示<span>›</span></button>
+      <div class="metric-choices hidden" id="metricChoices">
+        <button data-orb-metric="total">月度额度</button><button data-orb-metric="5h">5小时窗口</button><button data-orb-metric="7d">7天窗口</button>
+      </div>
+      <button id="copySummaryBtn">复制额度摘要</button>
+      <button id="diagnosticsBtn">诊断<span>›</span></button>
+      <button id="dockBtn">收为浮珠</button>
+    </nav>
+
+    <section class="subpage hidden" id="loginPanel" aria-label="登录 Kimi 账号">
+      <header class="subpage-header"><button class="icon-btn back-btn" id="loginCloseBtn" aria-label="返回">‹</button><span>登录 Kimi 账号</span><span class="header-spacer"></span></header>
+      <div class="login-tabs" role="tablist"><button class="login-tab active" id="tabQr" role="tab">扫码登录</button><button class="login-tab" id="tabSms" role="tab">手机验证码</button></div>
       <div class="login-body" id="qrPane">
         <div class="qr-wrap"><canvas id="qrCanvas" width="176" height="176"></canvas></div>
         <div class="qr-status" id="qrStatus">正在生成二维码…</div>
         <button class="link-btn hidden" id="qrRefreshBtn">点击刷新二维码</button>
         <div class="login-hint">使用微信或 Kimi 手机客户端扫码</div>
       </div>
-
       <div class="login-body hidden" id="smsPane">
-        <div class="sms-row">
-          <input class="sms-cc" id="smsCC" value="86" maxlength="4" inputmode="numeric" />
-          <input class="sms-phone" id="smsPhone" placeholder="手机号" maxlength="11" inputmode="numeric" />
-        </div>
-        <div class="sms-row">
-          <input class="sms-code" id="smsCode" placeholder="验证码" maxlength="6" inputmode="numeric" />
-          <button class="sms-send" id="smsSendBtn">发送验证码</button>
-        </div>
-        <button class="login-submit" id="smsLoginBtn">登录</button>
+        <div class="sms-row"><input class="sms-cc" id="smsCC" value="86" maxlength="4" inputmode="numeric" aria-label="国家或地区代码"/><input class="sms-phone" id="smsPhone" placeholder="手机号" maxlength="11" inputmode="numeric" aria-label="手机号"/></div>
+        <div class="sms-row"><input class="sms-code" id="smsCode" placeholder="验证码" maxlength="6" inputmode="numeric" aria-label="短信验证码"/><button class="sms-send" id="smsSendBtn">发送验证码</button></div>
+        <button class="primary-btn" id="smsLoginBtn">登录</button>
         <div class="login-error" id="smsError"></div>
-        <button class="link-btn" id="webLoginBtn">短信受限？用官方网页登录（支持短信验证）</button>
+        <button class="link-btn" id="webLoginBtn">短信受限？用官方网页登录<br/>（支持短信验证）</button>
       </div>
-    </div>
+    </section>
 
-    <div class="profile-panel hidden" id="profilePanel">
-      <div class="login-header">
-        <span class="login-title">个人中心</span>
-        <button class="icon-btn" id="profileCloseBtn" title="关闭">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 6 6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
+    <section class="subpage hidden" id="profilePanel" aria-label="个人中心">
+      <header class="subpage-header"><button class="icon-btn back-btn" id="profileCloseBtn" aria-label="返回">‹</button><span>个人中心</span><span class="header-spacer"></span></header>
       <div class="profile-body">
-        <div class="profile-top">
-          <div class="avatar" id="profileAvatar">K</div>
-          <div class="profile-idbox">
-            <div class="profile-uid" id="profileUid">--</div>
-            <div class="profile-source" id="profileSource">--</div>
-          </div>
-        </div>
-        <div class="profile-rows">
-          <div class="profile-row"><span class="k">会员计划</span><span class="v" id="profilePlan">--</span></div>
-          <div class="profile-row"><span class="k">状态</span><span class="v" id="profileStatus">--</span></div>
-          <div class="profile-row"><span class="k">到期时间</span><span class="v" id="profileExpire">--</span></div>
-        </div>
+        <div class="profile-top"><div class="avatar" id="profileAvatar">K</div><div class="profile-idbox"><div class="profile-uid" id="profileUid">—</div><div class="profile-source" id="profileSource">—</div></div></div>
+        <div class="profile-rows"><div class="profile-row"><span>会员计划</span><strong id="profilePlan">—</strong></div><div class="profile-row"><span>状态</span><strong id="profileStatus">—</strong></div><div class="profile-row"><span>到期时间</span><strong id="profileExpire">—</strong></div></div>
         <button class="logout-btn" id="logoutBtn">退出登录</button>
       </div>
-    </div>
+    </section>
 
-    <div class="confirm-mask hidden" id="confirmMask">
-      <div class="confirm-dialog">
-        <div class="confirm-title">确认退出登录？</div>
-        <div class="confirm-text" id="confirmText">退出后卡片将显示未登录状态。</div>
-        <div class="confirm-actions">
-          <button class="confirm-cancel" id="confirmCancelBtn">取消</button>
-          <button class="confirm-ok" id="confirmOkBtn">确认退出</button>
+    <section class="subpage hidden" id="appearancePanel" aria-label="外观设置">
+      <header class="subpage-header"><button class="icon-btn back-btn" id="appearanceBackBtn" aria-label="取消并返回">‹</button><span>外观</span><span class="header-spacer"></span></header>
+      <div class="appearance-tabs" role="tablist"><button class="active" data-appearance-tab="theme">主题</button><button data-appearance-tab="parts">部位</button><button data-appearance-tab="motion">动效</button></div>
+      <div class="appearance-scroll">
+        <div class="theme-preview" id="themePreview"><div class="preview-orb"><span>61.20%</span></div><div class="preview-card"><b>Kimi 额度</b><span>7天窗口</span><strong>61.20%</strong></div></div>
+        <div id="appearanceThemeTab" class="appearance-tab-body">
+          <div class="section-title">内置主题</div><div class="preset-grid" id="presetGrid"></div>
+          <div class="section-title">我的主题</div><div class="custom-list" id="customList"></div>
+          <label class="field-label">主题名称<input id="customThemeName" maxlength="24" value="我的主题"/></label>
+          <button class="secondary-btn" id="saveAsThemeBtn">从当前基底另存为我的主题</button>
+          <div class="section-title">主题文本</div><textarea id="themeText" rows="4" maxlength="16384" placeholder="粘贴主题 JSON 文本"></textarea>
+          <div class="button-row"><button class="secondary-btn" id="importThemeBtn">粘贴导入</button><button class="secondary-btn" id="exportThemeBtn">复制主题文本</button></div>
+        </div>
+        <div id="appearancePartsTab" class="appearance-tab-body hidden">
+          <div class="editor-toolbar"><button id="undoBtn" title="撤销">↶ 撤销</button><button id="redoBtn" title="重做">↷ 重做</button><button id="resetBaseBtn">还原基底</button></div>
+          <div id="themeFields"></div>
+        </div>
+        <div id="appearanceMotionTab" class="appearance-tab-body hidden">
+          <div class="section-title">装饰动效</div>
+          <label class="radio-row"><input type="radio" name="motion" value="static"/><span><b>静止</b><small>无循环动画，保留材质与渐变</small></span></label>
+          <label class="radio-row"><input type="radio" name="motion" value="lively"/><span><b>灵动</b><small>单层氛围光，静置 15 秒后冻结</small></span></label>
+          <label class="radio-row"><input type="radio" name="motion" value="stardust"/><span><b>星尘 · 观赏模式</b><small>保留旧版华丽粒子、双游星与辉光</small></span></label>
+          <label class="field-label">原生材质<select id="materialMode"><option value="auto">自动（推荐）</option><option value="matte">实色雾面</option><option value="enhanced">增强玻璃</option></select></label>
+          <p class="settings-note">Windows 默认使用透明窗口 + CSS 雾面，不叠加整窗 Acrylic。系统减少动态效果与高对比度偏好始终优先。</p>
         </div>
       </div>
-    </div>
-  </div>
+      <footer class="appearance-actions"><span id="draftStatus">草稿仅在保存后生效</span><button id="cancelAppearanceBtn">取消</button><button class="primary-btn" id="saveAppearanceBtn">保存</button></footer>
+    </section>
 
-  <!-- Edge Dock Orb（边缘吸附浮珠）· 三套可切换主题：深渊紫黑（默认）/
-       翡翠庭园 / 独角兽彩虹。主题由 body 上的 theme-* class 切换，
-       配色定义在 style.css 的 theme-* 段落。层序（后 → 前）：
-       orb-swirl 极光流转底光 → orb-particles 漂浮微粒 → orb-orbit 环绕星点
-       → orb-fx 观赏模式环内星尘（默认隐藏）→ orb-outer-orbit 观赏模式
-       最外圈游星（默认隐藏）→ orb-body 进度环 + 百分比（内容不变，id 不变）
-       → orb-burst 入场光爆。
-       观赏模式（showcase-mode，托盘菜单开关，默认关闭）关闭时上述两个
-       增强层与弧末亮点完全不渲染，与旧版逐像素一致。无任何圈线描边层。 -->
-  <div class="ball" id="ball" title="Kimi 额度 — 点击展开">
-    <div class="orb-swirl" aria-hidden="true"></div>
-    <div class="orb-particles" aria-hidden="true">
-      <i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i>
-      <i class="p5"></i><i class="p6"></i><i class="p7"></i><i class="p8"></i>
+    <section class="subpage hidden" id="diagnosticsPanel" aria-label="诊断">
+      <header class="subpage-header"><button class="icon-btn back-btn" id="diagnosticsBackBtn" aria-label="返回">‹</button><span>诊断</span><span class="header-spacer"></span></header>
+      <div class="diagnostics-body"><div class="diagnostic-summary" id="diagnosticSummary">正在读取…</div><details><summary>技术字段（已脱敏）</summary><pre id="diagnosticDetails"></pre></details><p>不包含账号 ID、令牌、回调地址、原始响应或本机路径。</p></div>
+      <footer class="diagnostic-actions"><button class="primary-btn" id="copyDiagnosticsBtn">复制脱敏诊断</button></footer>
+    </section>
+
+    <div class="confirm-mask hidden" id="confirmMask" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="confirm-dialog"><div class="confirm-title" id="confirmTitle">确认退出登录？</div><div class="confirm-text" id="confirmText">退出后卡片将显示未登录状态。</div><div class="confirm-actions"><button id="confirmCancelBtn">取消</button><button class="danger-btn" id="confirmOkBtn">确认退出</button></div></div>
     </div>
-    <div class="orb-orbit" aria-hidden="true"><i></i></div>
-    <canvas class="orb-fx" aria-hidden="true"></canvas>
-    <div class="orb-outer-orbit" aria-hidden="true"><i></i></div>
-    <div class="orb-body">
-      <svg viewBox="0 0 72 72">
-        <defs>
-          <linearGradient id="grad-abyss" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#4ade80"/>
-            <stop offset="35%" stop-color="#22d3ee"/>
-            <stop offset="70%" stop-color="#8b5cf6"/>
-            <stop offset="100%" stop-color="#d946ef"/>
-          </linearGradient>
-          <linearGradient id="grad-emerald" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#bef264"/>
-            <stop offset="38%" stop-color="#34d399"/>
-            <stop offset="70%" stop-color="#2dd4bf"/>
-            <stop offset="100%" stop-color="#60a5fa"/>
-          </linearGradient>
-          <linearGradient id="grad-rainbow" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#fb7185"/>
-            <stop offset="25%" stop-color="#fbbf24"/>
-            <stop offset="50%" stop-color="#34d399"/>
-            <stop offset="75%" stop-color="#38bdf8"/>
-            <stop offset="100%" stop-color="#a78bfa"/>
-          </linearGradient>
-        </defs>
-        <circle class="track" cx="36" cy="36" r="30"/>
-        <circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/>
-        <circle class="tip" id="orb-tip" r="1.7" cx="36" cy="6" opacity="0"/>
-      </svg>
-      <span class="pct" id="pct-ball">–</span>
-    </div>
-    <div class="orb-burst" aria-hidden="true"></div>
+    <div class="toast hidden" id="toast" role="status"></div>
+  </main>
+
+  <div class="ball" id="ball" role="button" tabindex="0" aria-label="Kimi 额度，点击展开" title="Kimi 额度 · 点击展开">
+    <div class="orb-swirl" aria-hidden="true"></div><canvas class="orb-fx" aria-hidden="true"></canvas>
+    <div class="orb-body"><svg viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="orbGradient" x1="0" y1="0" x2="1" y2="1"></linearGradient></defs><circle class="track" cx="36" cy="36" r="30"/><circle class="bar" id="ring-ball" cx="36" cy="36" r="30"/><circle class="tip" id="orb-tip" r="1.7" cx="36" cy="6" opacity="0"/></svg><span class="pct-mask"></span><span class="pct" id="pct-ball">—</span><span class="orb-state" id="orbState" aria-hidden="true"></span></div>
   </div>
-  <script src="app.js"></script>
+  <script src="quota-state.js"></script><script src="settings.js"></script><script src="motion.js"></script><script src="app.js"></script>
 </body>
 </html>

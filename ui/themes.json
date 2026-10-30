@@ -1,0 +1,146 @@
+[
+  {
+    "id": "abyss",
+    "label": "深空极光",
+    "appearance": "dark",
+    "palette": {
+      "background": "#161620",
+      "surface": "#181D2D",
+      "text": "#EEF3FF",
+      "secondary": "#A8B2C8",
+      "accent": "#8EA5FF",
+      "buttonText": "#0D101B",
+      "glow": "#748DFC",
+      "gradient": ["#60DFC8", "#64BCFF", "#A78BFA"],
+      "particles": ["#60DFC8", "#A78BFA"]
+    },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.12, "orbOpacity": 0.72 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "emerald",
+    "label": "翡翠庭园",
+    "appearance": "dark",
+    "palette": {
+      "background": "#061B19",
+      "surface": "#112C27",
+      "text": "#E5FFF4",
+      "secondary": "#9ABFB0",
+      "accent": "#73E2B5",
+      "buttonText": "#061B19",
+      "glow": "#54C7C0",
+      "gradient": ["#73E2B5", "#54C7C0", "#CDE998"],
+      "particles": ["#73E2B5", "#CDE998"]
+    },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "rainbow",
+    "label": "柔彩棱镜",
+    "appearance": "dark",
+    "palette": {
+      "background": "#171423",
+      "surface": "#282139",
+      "text": "#FFF1FC",
+      "secondary": "#C7B5CE",
+      "accent": "#D6B2F3",
+      "buttonText": "#171423",
+      "glow": "#B8A1EB",
+      "gradient": ["#F490BC", "#F3CB79", "#82D9B5", "#86C7F0", "#B8A1EB"],
+      "particles": ["#F490BC", "#86C7F0"]
+    },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "polar",
+    "label": "极地冰蓝",
+    "appearance": "dark",
+    "palette": {
+      "background": "#081827",
+      "surface": "#13283B",
+      "text": "#E9F8FF",
+      "secondary": "#9DB7CA",
+      "accent": "#8BD6FF",
+      "buttonText": "#081827",
+      "glow": "#69BFFF",
+      "gradient": ["#8DE8E1", "#69BFFF", "#879CF4"],
+      "particles": ["#8DE8E1", "#879CF4"]
+    },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "sunset",
+    "label": "落日桃雾",
+    "appearance": "dark",
+    "palette": {
+      "background": "#241721",
+      "surface": "#372333",
+      "text": "#FFF0EB",
+      "secondary": "#CFABB0",
+      "accent": "#F6A4A8",
+      "buttonText": "#241721",
+      "glow": "#F594A3",
+      "gradient": ["#FFCB99", "#F594A3", "#BD9EEA"],
+      "particles": ["#FFCB99", "#BD9EEA"]
+    },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "amber",
+    "label": "香槟琥珀",
+    "appearance": "dark",
+    "palette": {
+      "background": "#201B14",
+      "surface": "#32291E",
+      "text": "#FFF5E4",
+      "secondary": "#CDBB9D",
+      "accent": "#E5C68A",
+      "buttonText": "#201B14",
+      "glow": "#D8B66E",
+      "gradient": ["#E9D3A4", "#D8B66E", "#BA8751"],
+      "particles": ["#E9D3A4", "#BA8751"]
+    },
+    "material": { "orbGlow": 0.18, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  },
+  {
+    "id": "sakura",
+    "label": "樱雾白瓷",
+    "appearance": "light",
+    "palette": {
+      "background": "#F5F0F3",
+      "surface": "#FFF9FC",
+      "text": "#453747",
+      "secondary": "#7F687D",
+      "accent": "#9A5796",
+      "buttonText": "#FFF9FC",
+      "glow": "#D26E99",
+      "gradient": ["#8F68AA", "#D26E99", "#B96D53"],
+      "particles": ["#8F68AA", "#D26E99"]
+    },
+    "material": { "orbGlow": 0.1, "cardOpacity": 0.94, "orbOpacity": 0.94 },
+    "status": { "normal": "#236B50", "warning": "#825512", "critical": "#AD3F56", "unknown": "#796B80" }
+  },
+  {
+    "id": "graphite",
+    "label": "石墨银",
+    "appearance": "dark",
+    "palette": {
+      "background": "#15191E",
+      "surface": "#242A32",
+      "text": "#EEF1F4",
+      "secondary": "#AEB7C3",
+      "accent": "#CBD5E1",
+      "buttonText": "#15191E",
+      "glow": "#AAB8C8",
+      "gradient": ["#DCE4EC", "#AAB8C8", "#7C91A7"],
+      "particles": ["#DCE4EC", "#7C91A7"]
+    },
+    "material": { "orbGlow": 0.08, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+  }
+]

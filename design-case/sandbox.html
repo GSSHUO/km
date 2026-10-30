@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Kimi Quota Bar · 离线设计沙盒</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:24px;background:#202229;color:#f2f3f7;font:13px -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}h1{font-size:20px}p{color:#abb0bf}.controls{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0}button,select{padding:7px 10px;border:1px solid #454a5b;border-radius:7px;background:#2d3140;color:#fff;cursor:pointer}.stage{height:510px;display:flex;align-items:flex-start;gap:32px;padding:24px;border-radius:16px;background:repeating-linear-gradient(45deg,#c9c2b8 0,#c9c2b8 20px,#dad4ca 20px,#dad4ca 40px)}iframe{width:280px;height:252px;border:0;border-radius:18px;overflow:hidden;background:transparent}.stage.ball iframe{width:60px;height:60px;border-radius:50%}.badge{padding:4px 7px;border-radius:5px;background:#725b20;color:#fff;font-size:11px}
+</style></head><body>
+<h1>离线设计沙盒 <span class="badge">演示数据</span></h1><p>不读取账号、不请求 Kimi、不写真实设置。复用正式 UI 渲染函数。</p>
+<label>场景 <select id="scenario"></select></label><label> 主题 <select id="theme"></select></label><label> 动效 <select id="motion"><option value="static">静止</option><option value="lively" selected>灵动</option><option value="stardust">星尘</option></select></label>
+<div class="controls"><button id="card">精致三行</button><button id="ball">浮珠</button><button id="appearance">外观页</button></div>
+<div class="stage" id="stage"><iframe id="frame" src="../ui/index.html?sandbox=1" title="正式渲染沙盒"></iframe></div>
+<script src="fixtures.js"></script><script>
+const frame=document.getElementById("frame"),scenario=document.getElementById("scenario"),theme=document.getElementById("theme"),motion=document.getElementById("motion"),stage=document.getElementById("stage");
+Object.keys(window.KQB_FIXTURES).forEach((name)=>scenario.add(new Option(name,name)));
+scenario.value="75%";
+function send(){frame.contentWindow.postMessage({type:"kqb-fixture",payload:window.KQB_FIXTURES[scenario.value],theme:theme.value,motion:motion.value},"*");}
+frame.addEventListener("load",async()=>{const presets=await fetch("../ui/themes.json").then((r)=>r.json());presets.forEach((p)=>theme.add(new Option(p.label,p.id)));send();});
+scenario.addEventListener("change",send);theme.addEventListener("change",send);motion.addEventListener("change",send);
+document.getElementById("card").onclick=()=>{stage.classList.remove("ball");frame.width=280;frame.height=252;frame.contentWindow.__kqbBallMode(false);};
+document.getElementById("ball").onclick=()=>{stage.classList.add("ball");frame.width=60;frame.height=60;frame.contentWindow.__kqbBallMode(true);send();};
+document.getElementById("appearance").onclick=()=>{stage.classList.remove("ball");frame.width=280;frame.height=460;frame.contentWindow.__kqbDebug.openAppearance();};
+</script></body></html>

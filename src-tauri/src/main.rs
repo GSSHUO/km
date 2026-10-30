@@ -1,262 +1,93 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod quota;
+mod settings;
+mod windowing;
 
+use quota::QuotaState;
 use serde_json::json;
+use settings::{Settings, SettingsState};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
 };
+use windowing::DockEdge;
 
-const CARD_WIDTH: i32 = 328;
-const CARD_HEIGHT: i32 = 224;
-/// Ball-mode diameter (logical px) and edge-proximity thresholds (physical
-/// px). ENTER must stay well under EXIT so the snap itself never re-triggers.
-const BALL_SIZE: f64 = 60.0;
-const EDGE_ENTER_GAP: i32 = 28;
-const EDGE_EXIT_GAP: i32 = 48;
-
-// ---------- persistence ----------
-
-fn state_path() -> Option<std::path::PathBuf> {
-    let dir = dirs::config_dir()?.join("kimi-quota-bar");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("window-state.json"))
-}
-
-fn load_saved_position() -> Option<(i32, i32)> {
-    let raw = std::fs::read_to_string(state_path()?).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    Some((v["x"].as_i64()? as i32, v["y"].as_i64()? as i32))
-}
-
-fn save_position(x: i32, y: i32) {
-    if let Some(p) = state_path() {
-        let _ = std::fs::write(p, json!({ "x": x, "y": y }).to_string());
-    }
-}
-
-// ---------- ball mode (dock to the right screen edge → shrink to a ball) ----------
-//
-// Dragging the card until its right edge touches the monitor's right edge
-// collapses it into a small floating ball; dragging the ball away from the
-// edge — or simply clicking it — expands the card again at the ball's spot.
-// While in ball mode we stop persisting position so the next launch still
-// restores the last CARD position.
-
-static BALL_MODE: Mutex<bool> = Mutex::new(false);
-/// Tray menu ids of the three orb themes (radio-style checkmarks).
-const THEME_MENU_IDS: [&str; 3] = ["theme-abyss", "theme-emerald", "theme-rainbow"];
-/// Tray menu ids of the two orb metrics (radio-style checkmarks).
-const METRIC_MENU_IDS: [&str; 2] = ["metric-total", "metric-5h"];
-/// Handles to the tray check items. The tray menu lives on the tray icon, so
-/// `app.menu()` (the app-level menu, never set here) cannot reach them —
-/// exclusivity sync must go through these handles directly.
 struct TrayChecks {
-    themes: [tauri::menu::CheckMenuItem<tauri::Wry>; 3],
-    metrics: [tauri::menu::CheckMenuItem<tauri::Wry>; 2],
-    showcase: tauri::menu::CheckMenuItem<tauri::Wry>,
+    themes: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
+    metrics: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
+    motions: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
+    custom: tauri::menu::CheckMenuItem<tauri::Wry>,
 }
 static TRAY_CHECKS: std::sync::OnceLock<TrayChecks> = std::sync::OnceLock::new();
 
-/// Radio-group sync: exactly the item whose id matches `active` is checked.
-fn sync_check_group(
-    items: &[tauri::menu::CheckMenuItem<tauri::Wry>],
-    ids: &[&str],
-    active: &str,
-) {
-    for (item, id) in items.iter().zip(ids) {
-        let _ = item.set_checked(*id == active);
-    }
-}
-/// Which screen edge the ball is docked to (right or left).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DockEdge {
-    Left,
-    Right,
-}
-static BALL_DOCK: Mutex<DockEdge> = Mutex::new(DockEdge::Right);
-/// Brief window after a programmatic resize during which Moved events must
-/// not retrigger edge detection (the expand lands flush on the edge).
-static BALL_SUPPRESS_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
-/// Generation counter for the move debounce: only the latest Moved event's
-/// scheduled edge check is allowed to run.
-static MOVE_GEN: AtomicU64 = AtomicU64::new(0);
-
-fn ball_suppressed() -> bool {
-    BALL_SUPPRESS_UNTIL
-        .lock()
-        .unwrap()
-        .is_some_and(|t| Instant::now() < t)
-}
-
-fn in_ball_mode() -> bool {
-    *BALL_MODE.lock().unwrap()
-}
-
-/// Physical-px right edge of the monitor currently holding the window.
-fn monitor_right(window: &tauri::WebviewWindow) -> Option<i32> {
-    let m = window.current_monitor().ok().flatten()?;
-    Some(m.position().x + m.size().width as i32)
-}
-
-/// Physical-px left edge of the monitor currently holding the window.
-fn monitor_left(window: &tauri::WebviewWindow) -> Option<i32> {
-    let m = window.current_monitor().ok().flatten()?;
-    Some(m.position().x)
-}
-
-/// Smoothly shrink/grow the window between two geometries (x, y, w, h in
-/// physical px) with an ease-out-back (spring) curve — the overshoot gives
-/// the "magnetically sucked onto the edge" snap feel. Dock-in uses 240 ms,
-/// expand-out 220 ms. Pure visual feedback; trigger logic is unchanged.
-fn animate_window_geom(
-    window: &tauri::WebviewWindow,
-    from: (i32, i32, i32, i32),
-    to: (i32, i32, i32, i32),
-    duration_ms: u64,
-) {
-    let w = window.clone();
-    std::thread::spawn(move || {
-        let steps = (duration_ms / 20).max(1) as i32;
-        // easeOutBack: overshoots the target once, then settles (spring).
-        let c1: f64 = 1.70158;
-        let c3: f64 = c1 + 1.0;
-        for i in 1..=steps {
-            let t = i as f64 / steps as f64;
-            let e = 1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2);
-            let lerp = |a: i32, b: i32| (a as f64 + (b - a) as f64 * e).round() as i32;
-            let _ = w.set_size(tauri::PhysicalSize::new(
-                lerp(from.2, to.2).max(1) as u32,
-                lerp(from.3, to.3).max(1) as u32,
-            ));
-            let _ = w.set_position(PhysicalPosition::new(lerp(from.0, to.0), lerp(from.1, to.1)));
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    });
-}
-
-/// Native blur plate behind the transparent webview. The card uses a 16 px
-/// corner radius; the docked ball must be a full circle (radius = half the
-/// ball), otherwise the rounded-square plate peeks out as a gray frame
-/// around the orb.
-#[cfg(target_os = "macos")]
-fn apply_native_glass(window: &tauri::WebviewWindow, corner_radius: f64) {
-    use tauri_plugin_liquid_glass::{LiquidGlassConfig, LiquidGlassExt};
-    let glass_cfg = LiquidGlassConfig {
-        enabled: true,
-        corner_radius,
-        tint_color: Some("#1A1A2673".to_string()),
-        ..Default::default()
+fn sync_tray(settings: &Settings) {
+    let Some(checks) = TRAY_CHECKS.get() else {
+        return;
     };
-    if window.liquid_glass().set_effect(window, glass_cfg).is_err() {
-        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-        let _ = apply_vibrancy(
-            window,
-            NSVisualEffectMaterial::Popover,
-            Some(NSVisualEffectState::Active),
-            Some(corner_radius),
-        );
+    for item in &checks.themes {
+        let id = item.id().as_ref();
+        let _ = item.set_checked(id == format!("theme-{}", settings.theme.selected_id));
+    }
+    let custom_active =
+        !settings::preset_ids(&serde_json::from_str(settings::THEME_PRESETS).unwrap_or(json!([])))
+            .contains(&settings.theme.selected_id);
+    let _ = checks.custom.set_checked(custom_active);
+    for item in &checks.metrics {
+        let _ = item.set_checked(item.id().as_ref() == format!("metric-{}", settings.orb.metric));
+    }
+    for item in &checks.motions {
+        let _ =
+            item.set_checked(item.id().as_ref() == format!("motion-{}", settings.motion.preset));
     }
 }
 
-fn enter_ball(window: &tauri::WebviewWindow, edge: DockEdge) {
-    let Ok(pos) = window.outer_position() else { return };
-    let Ok(size) = window.outer_size() else { return };
-    *BALL_MODE.lock().unwrap() = true;
-    *BALL_DOCK.lock().unwrap() = edge;
-    *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1200));
-    // 球态下原生玻璃底板必须是正圆，否则圆角方形底板会在球外露出灰框。
-    #[cfg(target_os = "macos")]
-    apply_native_glass(window, BALL_SIZE / 2.0);
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let ball = (BALL_SIZE * scale).round() as i32;
-    // Switch the UI first so the card↔ball cross-fade runs together with
-    // the window shrink animation below.
-    let _ = window.emit("ball-mode", true);
-    // Direct eval is the reliable channel (event emit can be dropped while
-    // the window is mid-resize); app.js exposes __kqbBallMode for this.
-    let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(true)");
-    // Snap flush onto the edge the card was dragged to. A card pushed past
-    // the edge (negative gap) is pulled back on-screen by the same snap.
-    let x = match edge {
-        DockEdge::Right => monitor_right(window).map(|r| r - ball),
-        DockEdge::Left => monitor_left(window),
+fn publish_settings(app: &AppHandle, config: serde_json::Value) {
+    if let Ok(settings) = serde_json::from_value::<Settings>(config["settings"].clone()) {
+        sync_tray(&settings);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        windowing::reapply_material(&window);
+    }
+    let _ = app.emit("settings-changed", config);
+}
+
+fn commit_settings(app: &AppHandle, next: Settings, expected_revision: u64) -> serde_json::Value {
+    let state = app.state::<SettingsState>();
+    let result = {
+        let mut store = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        store.commit(next, expected_revision)
     };
-    if let Some(x) = x {
-        animate_window_geom(
-            window,
-            (pos.x, pos.y, size.width as i32, size.height as i32),
-            (x, pos.y, ball, ball),
-            240, // dock-in: spring snap
-        );
-    } else {
-        let _ = window.set_size(tauri::PhysicalSize::new(ball as u32, ball as u32));
-    }
-}
-
-fn exit_ball(window: &tauri::WebviewWindow) {
-    let edge = *BALL_DOCK.lock().unwrap();
-    *BALL_MODE.lock().unwrap() = false;
-    *BALL_SUPPRESS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1500));
-    // 展开回卡片：原生玻璃底板恢复 16px 圆角。
-    #[cfg(target_os = "macos")]
-    apply_native_glass(window, 16.0);
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let card_w = (CARD_WIDTH as f64 * scale).round() as i32;
-    let card_h = (CARD_HEIGHT as f64 * scale).round() as i32;
-    // Expand away from the docked edge so the docked side stays put; clamp
-    // to the monitor in case the ball sits near the edge of another one.
-    if let Ok(pos) = window.outer_position() {
-        if let Ok(size) = window.outer_size() {
-            let mut x = match edge {
-                DockEdge::Right => pos.x + size.width as i32 - card_w,
-                DockEdge::Left => pos.x,
+    match result {
+        Ok(payload) => {
+            let config = {
+                let store = state.0.lock().unwrap_or_else(|e| e.into_inner());
+                store.config()
             };
-            if let Some(m) = window.current_monitor().ok().flatten() {
-                x = x.clamp(m.position().x, m.position().x + m.size().width as i32 - card_w);
-            }
-            let _ = window.emit("ball-mode", false);
-            let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
-            animate_window_geom(
-                window,
-                (pos.x, pos.y, size.width as i32, size.height as i32),
-                (x, pos.y, card_w, card_h),
-                220, // expand-out: reverse spring
-            );
-            return;
+            publish_settings(app, config);
+            payload
         }
+        Err(error) => json!({ "ok": false, "error": error }),
     }
-    let _ = window.set_size(tauri::PhysicalSize::new(card_w as u32, card_h as u32));
-    let _ = window.emit("ball-mode", false);
-    let _ = window.eval("window.__kqbBallMode && window.__kqbBallMode(false)");
 }
 
-/// Hidden diagnostic: lets --check-ball read back DOM state through the
-/// invoke channel instead of relying on document.title sync timing.
 #[tauri::command]
 fn report_dom(state: String) {
     println!("dom-report: {state}");
 }
 
-/// Ball click → expand. Dragging the ball away from the edge also expands,
-/// via the Moved handler below.
 #[tauri::command]
 fn expand_card(window: tauri::WebviewWindow) {
-    if in_ball_mode() {
-        exit_ball(&window);
-    }
+    windowing::exit_ball(&window);
 }
 
-/// Double-clicking the card title docks the card to the NEAREST side edge as
-/// the orb — the same enter_ball path as edge-dragging, just programmatic.
 #[tauri::command]
 fn dock_ball(window: tauri::WebviewWindow) {
-    if in_ball_mode() {
+    if windowing::in_ball_mode() {
         return;
     }
     let edge = match (
@@ -264,9 +95,9 @@ fn dock_ball(window: tauri::WebviewWindow) {
         window.outer_size(),
         window.current_monitor(),
     ) {
-        (Ok(pos), Ok(size), Ok(Some(m))) => {
-            let center_x = pos.x + size.width as i32 / 2;
-            if center_x < m.position().x + m.size().width as i32 / 2 {
+        (Ok(pos), Ok(size), Ok(Some(monitor))) => {
+            let center = pos.x + size.width as i32 / 2;
+            if center < monitor.position().x + monitor.size().width as i32 / 2 {
                 DockEdge::Left
             } else {
                 DockEdge::Right
@@ -274,108 +105,70 @@ fn dock_ball(window: tauri::WebviewWindow) {
         }
         _ => DockEdge::Right,
     };
-    enter_ball(&window, edge);
+    windowing::enter_ball(&window, edge);
 }
 
-/// Keep the tray checkmarks (orb theme + metric + showcase) in sync with the
-/// frontend's persisted choices (e.g. after a relaunch restoring
-/// non-default selections).
-#[tauri::command]
-fn sync_menus(theme: String, metric: String, showcase: bool) {
-    let Some(checks) = TRAY_CHECKS.get() else { return };
-    let theme_target = format!("theme-{theme}");
-    sync_check_group(&checks.themes, &THEME_MENU_IDS, &theme_target);
-    let metric_target = format!("metric-{metric}");
-    sync_check_group(&checks.metrics, &METRIC_MENU_IDS, &metric_target);
-    let _ = checks.showcase.set_checked(showcase);
+fn clean_error(message: &str) -> String {
+    quota::clean_error(message)
 }
 
-// ---------- quota fetch ----------
-
-fn pick<'a>(raw: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_json::Value> {
-    keys.iter().find_map(|k| raw.get(*k)).filter(|v| !v.is_null())
-}
-
-fn ratio_of(stat: Option<&serde_json::Value>, field: &str) -> Option<f64> {
-    // proto3 JSON emits doubles as numbers, but tolerate quoted numbers too
-    // so a server-side encoding change can never silently read as 0%.
-    stat.and_then(|s| s.get(field)).and_then(|v| {
-        v.as_f64()
-            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
-    })
-}
-
-fn str_of(stat: Option<&serde_json::Value>, field: &str) -> Option<String> {
-    stat.and_then(|s| s.get(field))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-fn normalize(raw: &serde_json::Value) -> serde_json::Value {
-    let balance = pick(raw, &["subscriptionBalance"]);
-    let five = pick(raw, &["ratelimitCode5h", "ratelimit5h"]);
-    let seven = pick(raw, &["ratelimitCode7d", "ratelimit7d"]);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // proto3 JSON omits zero-valued fields: a missing ratio on a present
-    // stat object means 0% used, not "unknown".
-    let zero_if = |stat: Option<&serde_json::Value>| stat.map(|_| 0.0);
-    json!({
-        "ok": true,
-        "fetchedAt": now,
-        "total": {
-            "usedRatio": ratio_of(balance, "amountUsedRatio").or(zero_if(balance)),
-            "codeRatio": ratio_of(balance, "kimiCodeUsedRatio").or(zero_if(balance)),
-            "resetTime": str_of(balance, "expireTime"),
-        },
-        "fiveHour": {
-            "usedRatio": ratio_of(five, "ratio").or(zero_if(five)),
-            "enabled": five.and_then(|s| s.get("enabled")).and_then(|v| v.as_bool()).unwrap_or(true),
-            "resetTime": str_of(five, "resetTime"),
-        },
-        "sevenDay": {
-            "usedRatio": ratio_of(seven, "ratio").or(zero_if(seven)),
-            "enabled": seven.and_then(|s| s.get("enabled")).and_then(|v| v.as_bool()).unwrap_or(true),
-            "resetTime": str_of(seven, "resetTime"),
-        },
-    })
-}
-
-fn fetch_payload() -> serde_json::Value {
-    match auth::fetch_quota_smart() {
-        Ok(raw) => normalize(&raw),
-        Err(e) => json!({ "ok": false, "error": clean_error(&e.to_string()) }),
+fn ok_or_err(result: anyhow::Result<serde_json::Value>) -> serde_json::Value {
+    match result {
+        Ok(value) => value,
+        Err(error) => json!({ "ok": false, "error": clean_error(&error.to_string()) }),
     }
 }
 
-/// Strip internal routing prefixes before an error reaches the card.
-fn clean_error(msg: &str) -> String {
-    msg.trim_start_matches("AUTH_DEAD: ")
-        .trim_start_matches("AUTH_EXPIRED: ")
-        .to_string()
+#[tauri::command]
+fn get_ui_config(state: tauri::State<'_, SettingsState>) -> serde_json::Value {
+    state.0.lock().unwrap_or_else(|e| e.into_inner()).config()
 }
 
-fn ok_or_err(r: anyhow::Result<serde_json::Value>) -> serde_json::Value {
-    match r {
-        Ok(v) => v,
-        Err(e) => json!({ "ok": false, "error": clean_error(&e.to_string()) }),
+#[tauri::command]
+fn migrate_settings(
+    theme: Option<String>,
+    metric: Option<String>,
+    showcase: Option<bool>,
+    app: AppHandle,
+) -> serde_json::Value {
+    let state = app.state::<SettingsState>();
+    let result = {
+        let mut store = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        store.migrate(theme, metric, showcase)
+    };
+    match result {
+        Ok(payload) => {
+            let config = state.0.lock().unwrap_or_else(|e| e.into_inner()).config();
+            publish_settings(&app, config);
+            payload
+        }
+        Err(error) => json!({ "ok": false, "error": error }),
     }
 }
 
-// ---------- commands (invoked from the card UI) ----------
-
-/// The frontend polls this on a timer — invoke is the reliable channel.
 #[tauri::command]
-async fn get_quota() -> serde_json::Value {
-    tauri::async_runtime::spawn_blocking(fetch_payload)
+fn save_settings(
+    settings: serde_json::Value,
+    expected_revision: u64,
+    app: AppHandle,
+) -> serde_json::Value {
+    match settings::settings_from_value(settings) {
+        Ok(settings) => commit_settings(&app, settings, expected_revision),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+async fn get_quota(app: AppHandle) -> serde_json::Value {
+    let state = app.state::<QuotaState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.fetch())
         .await
-        .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }))
+        .unwrap_or_else(|error| json!({ "ok": false, "error": error.to_string() }))
 }
 
 #[tauri::command]
 fn start_drag(window: tauri::Window) {
+    windowing::note_drag_started();
     let _ = window.start_dragging();
 }
 
@@ -384,26 +177,91 @@ fn session_status() -> serde_json::Value {
     auth::session_status()
 }
 
-/// Grow/shrink the card when the login panel opens/closes. Opening the
-/// panel from ball mode first expands the ball back into the card.
 #[tauri::command]
-fn set_card_height(height: u32, window: tauri::WebviewWindow) {
-    if in_ball_mode() {
-        exit_ball(&window);
-    }
-    let _ = window.set_size(tauri::LogicalSize::new(
-        CARD_WIDTH as u32,
-        height.max(CARD_HEIGHT as u32),
-    ));
+fn reset_session_state(state: tauri::State<'_, QuotaState>) -> serde_json::Value {
+    json!({ "ok": true, "sessionGeneration": state.reset_session() })
 }
 
-/// Hide the card (same effect as the tray toggle's hide path).
 #[tauri::command]
-fn hide_card(window: tauri::Window) {
-    if let Ok(pos) = window.outer_position() {
-        save_position(pos.x, pos.y);
+fn set_panel_layout(layout: String, window: tauri::WebviewWindow) {
+    windowing::set_panel_layout(&window, &layout);
+}
+
+#[tauri::command]
+fn hide_card(window: tauri::WebviewWindow) {
+    windowing::hide_window(&window);
+}
+
+fn diagnostics_payload(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    quota: &QuotaState,
+    settings: &SettingsState,
+) -> serde_json::Value {
+    let store = settings.0.lock().unwrap_or_else(|e| e.into_inner());
+    json!({
+        "appVersion": app.package_info().version.to_string(),
+        "system": { "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
+        "webViewVersion": "无法可靠获取",
+        "quota": quota.diagnostics(),
+        "window": windowing::diagnostics(window),
+        "theme": store.settings.theme.selected_id,
+        "motion": store.settings.motion.preset,
+        "materialPreference": store.settings.material.mode,
+    })
+}
+
+#[tauri::command]
+fn get_diagnostics(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    quota: tauri::State<'_, QuotaState>,
+    settings: tauri::State<'_, SettingsState>,
+) -> serde_json::Value {
+    diagnostics_payload(&app, &window, &quota, &settings)
+}
+
+fn write_clipboard(app: &AppHandle, text: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn copy_quota_summary(app: AppHandle, quota: tauri::State<'_, QuotaState>) -> serde_json::Value {
+    let result = quota.summary().and_then(|text| write_clipboard(&app, text));
+    match result {
+        Ok(_) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
     }
-    let _ = window.hide();
+}
+
+#[tauri::command]
+fn copy_diagnostics(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    quota: tauri::State<'_, QuotaState>,
+    settings: tauri::State<'_, SettingsState>,
+) -> serde_json::Value {
+    let payload = diagnostics_payload(&app, &window, &quota, &settings);
+    match write_clipboard(
+        &app,
+        serde_json::to_string_pretty(&payload).unwrap_or_default(),
+    ) {
+        Ok(_) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+#[tauri::command]
+fn copy_theme_text(text: String, app: AppHandle) -> serde_json::Value {
+    let result = settings::merged_theme_text(&text)
+        .and_then(|theme| write_clipboard(&app, settings::export_theme(&theme)));
+    match result {
+        Ok(_) => json!({ "ok": true }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
 }
 
 // ---------- embedded web login ----------
@@ -444,13 +302,19 @@ static WEBLOGIN_DIAG_PRINT: AtomicBool = AtomicBool::new(false);
 static WEBLOGIN_POLL_GEN: AtomicU64 = AtomicU64::new(0);
 
 fn append_diag_log(msg: &str) {
-    let Some(dir) = dirs::config_dir() else { return };
+    let Some(dir) = dirs::config_dir() else {
+        return;
+    };
     let p = dir.join("kimi-quota-bar").join("web-login-diag.log");
     use std::io::Write;
     if let Some(parent) = p.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(p)
+    {
         let _ = writeln!(f, "{msg}");
     }
 }
@@ -507,12 +371,13 @@ fn web_login_nav_handler(app: &AppHandle, url: &tauri::Url) -> bool {
                     log::warn!("网页登录会话保存失败: {e}");
                 }
             }
+            notify_session_changed(app);
             if let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) {
                 let _ = w.close();
             }
             if let Some(m) = app.get_webview_window("main") {
                 let _ = m.eval(
-                    "window.__kqbPoll && window.__kqbPoll(); window.__kqbSession && window.__kqbSession()",
+                    "window.__kqbPoll && window.__kqbPoll(true); window.__kqbSession && window.__kqbSession()",
                 );
             }
             false
@@ -560,7 +425,9 @@ fn start_web_login_url_timeline(app: AppHandle) {
         for target in [3u64, 8, 15, 25] {
             std::thread::sleep(Duration::from_secs(target - elapsed));
             elapsed = target;
-            let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+            let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else {
+                return;
+            };
             let url = w
                 .url()
                 .map(|u| u.to_string())
@@ -591,7 +458,9 @@ fn nudge_web_login_repaint(app: &AppHandle) {
     let app2 = app.clone();
     let dispatcher = app.clone();
     let _ = dispatcher.run_on_main_thread(move || {
-        let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) else { return };
+        let Some(w) = app2.get_webview_window(WEB_LOGIN_LABEL) else {
+            return;
+        };
         if let Ok(size) = w.outer_size() {
             let _ = w.set_size(tauri::PhysicalSize::new(size.width + 1, size.height));
             let _ = w.set_size(size);
@@ -604,7 +473,9 @@ fn nudge_web_login_repaint(app: &AppHandle) {
 fn start_web_login_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(15));
-        let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+        let Some(w) = app.get_webview_window(WEB_LOGIN_LABEL) else {
+            return;
+        };
         let url_now = w
             .url()
             .map(|u| u.to_string())
@@ -620,7 +491,9 @@ fn start_web_login_watchdog(app: AppHandle) {
             append_diag_log("web-login not on kimi.com; forcing reload");
             let _ = w.eval(&format!("location.replace('{WEB_LOGIN_HOME}')"));
             std::thread::sleep(Duration::from_secs(15));
-            let Some(w2) = app.get_webview_window(WEB_LOGIN_LABEL) else { return };
+            let Some(w2) = app.get_webview_window(WEB_LOGIN_LABEL) else {
+                return;
+            };
             let url2 = w2
                 .url()
                 .map(|u| u.to_string())
@@ -738,16 +611,28 @@ async fn login_qr_create() -> serde_json::Value {
     .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }))
 }
 
+fn notify_session_changed(app: &AppHandle) {
+    let generation = app.state::<QuotaState>().reset_session();
+    let _ = app.emit(
+        "session-changed",
+        json!({ "sessionGeneration": generation }),
+    );
+}
+
 #[tauri::command]
-async fn login_qr_poll(code: String) -> serde_json::Value {
-    tauri::async_runtime::spawn_blocking(move || {
+async fn login_qr_poll(code: String, app: AppHandle) -> serde_json::Value {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         ok_or_err(auth::login_qr_poll(&code).map(|mut v| {
             v["ok"] = json!(true);
             v
         }))
     })
     .await
-    .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }))
+    .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }));
+    if result["status"] == "STATUS_SUCCESS" {
+        notify_session_changed(&app);
+    }
+    result
 }
 
 #[tauri::command]
@@ -764,22 +649,31 @@ async fn login_sms_verify(
     country_code: String,
     number: String,
     verify_code: String,
+    app: AppHandle,
 ) -> serde_json::Value {
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         ok_or_err(
             auth::login_sms_verify(&country_code, &number, &verify_code)
                 .map(|_| json!({ "ok": true })),
         )
     })
     .await
-    .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }))
+    .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }));
+    if result["ok"] == true {
+        notify_session_changed(&app);
+    }
+    result
 }
 
 #[tauri::command]
-async fn logout() -> serde_json::Value {
-    tauri::async_runtime::spawn_blocking(|| ok_or_err(auth::logout_any()))
+async fn logout(app: AppHandle) -> serde_json::Value {
+    let result = tauri::async_runtime::spawn_blocking(|| ok_or_err(auth::logout_any()))
         .await
-        .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }))
+        .unwrap_or_else(|e| json!({ "ok": false, "error": e.to_string() }));
+    if result["ok"] != false {
+        notify_session_changed(&app);
+    }
+    result
 }
 
 /// Personal-center payload: session state, user id, best-effort membership.
@@ -805,19 +699,24 @@ async fn get_profile() -> serde_json::Value {
 
 // ---------- window show/hide ----------
 
-fn toggle_window(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
+fn handle_tray_selection(app: &AppHandle, id: &str) {
+    let state = app.state::<SettingsState>();
+    let (mut next, revision) = {
+        let store = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        (store.settings.clone(), store.revision)
     };
-    let visible = window.is_visible().unwrap_or(false);
-    if visible {
-        if let Ok(pos) = window.outer_position() {
-            save_position(pos.x, pos.y);
-        }
-        let _ = window.hide();
+    if let Some(theme) = id.strip_prefix("theme-") {
+        next.theme.selected_id = theme.to_string();
+    } else if let Some(metric) = id.strip_prefix("metric-") {
+        next.orb.metric = metric.to_string();
+    } else if let Some(motion) = id.strip_prefix("motion-") {
+        next.motion.preset = motion.to_string();
     } else {
-        let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        return;
+    }
+    let result = commit_settings(app, next, revision);
+    if result["ok"] != true {
+        log::warn!("托盘设置保存失败: {}", result["error"]);
     }
 }
 
@@ -837,9 +736,32 @@ fn main() {
     // exits; `--check-refresh` forces a token renewal first. Handy for
     // verifying the auth chain without launching the UI.
     let args: Vec<String> = std::env::args().collect();
-    let self_check = args
-        .iter()
-        .any(|a| a == "--check" || a == "--check-refresh" || a == "--check-login" || a == "--check-session" || a == "--check-qr" || a == "--check-profile");
+    if args.iter().any(|a| a == "--check-settings") {
+        let presets: serde_json::Value =
+            serde_json::from_str(settings::THEME_PRESETS).unwrap_or(json!([]));
+        let defaults = Settings::default();
+        let result = settings::validate(&presets, &defaults);
+        println!(
+            "{}",
+            json!({ "ok": result.is_ok(), "presets": presets.as_array().map_or(0, Vec::len), "defaultSettings": defaults, "error": result.err() })
+        );
+        return;
+    }
+    if args.iter().any(|a| a == "--check-layout") {
+        println!(
+            "{}",
+            json!({ "ok": true, "card": { "width": windowing::CARD_WIDTH, "height": windowing::CARD_HEIGHT }, "ball": windowing::BALL_SIZE, "panels": { "login": 400, "profile": 320, "appearance": 460, "diagnostics": 400 } })
+        );
+        return;
+    }
+    let self_check = args.iter().any(|a| {
+        a == "--check"
+            || a == "--check-refresh"
+            || a == "--check-login"
+            || a == "--check-session"
+            || a == "--check-qr"
+            || a == "--check-profile"
+    });
     if self_check {
         // Release builds are GUI-subsystem on Windows: stdout goes nowhere
         // unless we first borrow the parent terminal's console. Harmless
@@ -903,10 +825,8 @@ fn main() {
             return;
         }
         let force = args.iter().any(|a| a == "--check-refresh");
-        let out = match auth::get_valid_access_token(force)
-            .and_then(|t| auth::fetch_quota(&t))
-        {
-            Ok(raw) => normalize(&raw),
+        let out = match auth::get_valid_access_token(force).and_then(|t| auth::fetch_quota(&t)) {
+            Ok(raw) => quota::normalize(&raw),
             Err(e) => json!({ "ok": false, "error": clean_error(&e.to_string()) }),
         };
         println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
@@ -921,157 +841,89 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_liquid_glass::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(SettingsState::load())
+        .manage(QuotaState::new())
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            let window = app
-                .get_webview_window("main")
-                .expect("main window missing");
-
-            // Force dark appearance so the vibrancy blur stays dark glass
-            // even when the system is in light mode.
-            let _ = window.set_theme(Some(tauri::Theme::Dark));
-
-            // WKWebView defaults to an opaque WHITE background, which hides
-            // the vibrancy layer and leaks white at the rounded corners.
-            let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-
-            // Native blur behind the transparent card.
-            #[cfg(target_os = "macos")]
-            apply_native_glass(&window, 16.0);
-            #[cfg(target_os = "windows")]
-            {
-                let _ = window_vibrancy::apply_acrylic(&window, Some((16, 16, 24, 200)));
-            }
-
-            // Restore last position, else default top-right of the primary
-            // monitor. The saved spot is accepted when it sits on ANY
-            // connected monitor — multi-display users keep their placement.
-            let monitors = window.available_monitors().unwrap_or_default();
-            let on_screen = |x: i32, y: i32| {
-                monitors.iter().any(|m| {
-                    let size = m.size();
-                    let origin = m.position();
-                    x >= origin.x - 50
-                        && y >= origin.y - 50
-                        && x + CARD_WIDTH <= origin.x + size.width as i32 + 50
-                        && y + 100 <= origin.y + size.height as i32 + 50
-                })
-            };
-            let primary = window.primary_monitor().ok().flatten();
-            // 默认位与右边缘保持 48px：必须落在缩球触发区（28px）之外，
-            // 否则启动后第一次轻推就会被误判为「拖向边缘」。
-            let fallback = primary.as_ref().map(|m| {
-                let size = m.size();
-                let origin = m.position();
-                (origin.x + size.width as i32 - CARD_WIDTH - 48, origin.y + 32)
-            });
-            let pos = load_saved_position()
-                .filter(|(x, y)| monitors.is_empty() || on_screen(*x, *y))
-                .or(fallback);
-            if let Some((x, y)) = pos {
+            let window = app.get_webview_window("main").expect("main window missing");
+            if let Some((x, y)) = windowing::initial_position(&window) {
                 let _ = window.set_position(PhysicalPosition::new(x, y));
             }
-
-            // Save position after dragging and drive ball mode, both on a
-            // real debounce: Moved events stop the moment the drag ends, so
-            // the edge check is scheduled 200 ms out and only the latest
-            // schedule is allowed to run.
-            //
-            // Launch grace: macOS fires Moved events on show/bring-to-front,
-            // and the restored position may sit inside the dock-trigger zone
-            // (an edge-hugging saved spot is legitimate). Suppress auto-dock
-            // briefly so the app never launches straight into a ball.
-            *BALL_SUPPRESS_UNTIL.lock().unwrap() =
-                Some(Instant::now() + Duration::from_millis(1200));
             let app_handle = app.handle().clone();
             window.on_window_event(move |event| match event {
-                WindowEvent::Moved(_) => {
-                    let gen = MOVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-                    let app2 = app_handle.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(200));
-                        if MOVE_GEN.load(Ordering::SeqCst) != gen {
-                            return;
-                        }
-                        let dispatcher = app2.clone();
-                        let _ = dispatcher.run_on_main_thread(move || {
-                            let Some(w) = app2.get_webview_window("main") else { return };
-                            let Ok(pos) = w.outer_position() else { return };
-                            let Ok(size) = w.outer_size() else { return };
-                            if !in_ball_mode() {
-                                save_position(pos.x, pos.y);
-                                if ball_suppressed() {
-                                    return;
-                                }
-                                // Dragged to (or past) a side edge: a negative
-                                // gap means the card overshot the screen edge —
-                                // the common way users slam a window against it —
-                                // and must trigger just like a flush dock.
-                                let right_gap =
-                                    monitor_right(&w).map(|r| r - (pos.x + size.width as i32));
-                                let left_gap = monitor_left(&w).map(|l| pos.x - l);
-                                if right_gap.is_some_and(|g| g <= EDGE_ENTER_GAP) {
-                                    enter_ball(&w, DockEdge::Right);
-                                } else if left_gap.is_some_and(|g| g <= EDGE_ENTER_GAP) {
-                                    enter_ball(&w, DockEdge::Left);
-                                }
-                            } else {
-                                let edge = *BALL_DOCK.lock().unwrap();
-                                let gap = match edge {
-                                    DockEdge::Right => monitor_right(&w)
-                                        .map(|r| r - (pos.x + size.width as i32)),
-                                    DockEdge::Left => monitor_left(&w).map(|l| pos.x - l),
-                                };
-                                if gap.is_some_and(|g| g.abs() > EDGE_EXIT_GAP) {
-                                    exit_ball(&w);
-                                }
-                            }
-                        });
-                    });
+                WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    windowing::schedule_moved(&app_handle);
                 }
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                }
+                WindowEvent::CloseRequested { api, .. } => api.prevent_close(),
                 _ => {}
             });
 
-            // Tray: left click toggles the card; right click opens menu.
             let refresh_item = MenuItemBuilder::with_id("refresh", "立即刷新").build(app)?;
-            // 悬浮球主题：单选勾选，切换后 eval 直推前端（本地持久化在前端）。
-            let theme_abyss = CheckMenuItemBuilder::with_id("theme-abyss", "深渊紫黑（默认）")
-                .checked(true)
+            let presets: serde_json::Value = serde_json::from_str(settings::THEME_PRESETS)?;
+            let mut theme_items = Vec::new();
+            let mut theme_menu = SubmenuBuilder::with_id(app, "theme", "外观主题");
+            for preset in presets.as_array().into_iter().flatten() {
+                let id = preset["id"].as_str().unwrap_or("abyss");
+                let item = CheckMenuItemBuilder::with_id(
+                    format!("theme-{id}"),
+                    preset["label"].as_str().unwrap_or(id),
+                )
                 .build(app)?;
-            let theme_emerald = CheckMenuItemBuilder::with_id("theme-emerald", "翡翠庭园")
-                .build(app)?;
-            let theme_rainbow = CheckMenuItemBuilder::with_id("theme-rainbow", "独角兽彩虹")
-                .build(app)?;
-            let theme_menu = SubmenuBuilder::with_id(app, "theme", "悬浮球主题")
-                .items(&[&theme_abyss, &theme_emerald, &theme_rainbow])
-                .build()?;
-            // 悬浮球显示口径：总量 / 5 小时窗口（单选勾选，eval 直推前端）。
-            let metric_total = CheckMenuItemBuilder::with_id("metric-total", "总量 · 月度额度")
-                .checked(true)
-                .build(app)?;
-            let metric_5h = CheckMenuItemBuilder::with_id("metric-5h", "5 小时窗口")
-                .build(app)?;
-            let metric_menu = SubmenuBuilder::with_id(app, "metric", "悬浮球显示")
-                .items(&[&metric_total, &metric_5h])
-                .build()?;
-            // 观赏模式：可选增强渲染层（环内星尘 + 最外圈游星 + 弧末亮点），
-            // 默认关闭 = 与旧版渲染一致；勾选状态由前端 sync_menus 回写。
-            let showcase_item =
-                CheckMenuItemBuilder::with_id("showcase", "观赏模式（悬浮球增强渲染）")
+                theme_menu = theme_menu.item(&item);
+                theme_items.push(item);
+            }
+            let custom_item =
+                CheckMenuItemBuilder::with_id("theme-custom-current", "自定义 · 当前主题")
+                    .enabled(false)
                     .build(app)?;
+            theme_menu = theme_menu.item(&custom_item);
+            let theme_menu = theme_menu.build()?;
+
+            let mut metric_items = Vec::new();
+            let mut metric_menu = SubmenuBuilder::with_id(app, "metric", "浮珠显示");
+            for (id, label) in [
+                ("total", "月度额度"),
+                ("5h", "5 小时窗口"),
+                ("7d", "7 天窗口"),
+            ] {
+                let item =
+                    CheckMenuItemBuilder::with_id(format!("metric-{id}"), label).build(app)?;
+                metric_menu = metric_menu.item(&item);
+                metric_items.push(item);
+            }
+            let metric_menu = metric_menu.build()?;
+
+            let mut motion_items = Vec::new();
+            let mut motion_menu = SubmenuBuilder::with_id(app, "motion", "动效");
+            for (id, label) in [
+                ("static", "静止"),
+                ("lively", "灵动"),
+                ("stardust", "星尘 · 观赏模式"),
+            ] {
+                let item =
+                    CheckMenuItemBuilder::with_id(format!("motion-{id}"), label).build(app)?;
+                motion_menu = motion_menu.item(&item);
+                motion_items.push(item);
+            }
+            let motion_menu = motion_menu.build()?;
             let _ = TRAY_CHECKS.set(TrayChecks {
-                themes: [theme_abyss.clone(), theme_emerald.clone(), theme_rainbow.clone()],
-                metrics: [metric_total.clone(), metric_5h.clone()],
-                showcase: showcase_item.clone(),
+                themes: theme_items,
+                metrics: metric_items,
+                motions: motion_items,
+                custom: custom_item,
             });
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&refresh_item, &theme_menu, &metric_menu, &showcase_item, &quit_item])
+                .items(&[
+                    &refresh_item,
+                    &theme_menu,
+                    &metric_menu,
+                    &motion_menu,
+                    &quit_item,
+                ])
                 .build()?;
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
             TrayIconBuilder::with_id("main-tray")
@@ -1082,46 +934,12 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "refresh" => {
-                        // Poke the card to re-poll immediately.
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.eval("window.__kqbPoll && window.__kqbPoll()");
-                        }
-                    }
-                    "theme-abyss" | "theme-emerald" | "theme-rainbow" => {
-                        if let Some(checks) = TRAY_CHECKS.get() {
-                            sync_check_group(&checks.themes, &THEME_MENU_IDS, event.id().as_ref());
-                        }
-                        if let Some(w) = app.get_webview_window("main") {
-                            let theme = event.id().as_ref().trim_start_matches("theme-");
-                            let _ = w.eval(&format!(
-                                "window.__kqbSetTheme && window.__kqbSetTheme('{theme}')"
-                            ));
-                        }
-                    }
-                    "metric-total" | "metric-5h" => {
-                        if let Some(checks) = TRAY_CHECKS.get() {
-                            sync_check_group(&checks.metrics, &METRIC_MENU_IDS, event.id().as_ref());
-                        }
-                        if let Some(w) = app.get_webview_window("main") {
-                            let metric = event.id().as_ref().trim_start_matches("metric-");
-                            let _ = w.eval(&format!(
-                                "window.__kqbSetMetric && window.__kqbSetMetric('{metric}')"
-                            ));
-                        }
-                    }
-                    "showcase" => {
-                        // 勾选态由菜单原生切换；把新状态直推前端（eval 通道）。
-                        if let Some(checks) = TRAY_CHECKS.get() {
-                            let on = checks.showcase.is_checked().unwrap_or(false);
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.eval(&format!(
-                                    "window.__kqbSetShowcase && window.__kqbSetShowcase({on})"
-                                ));
-                            }
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.eval("window.__kqbPoll && window.__kqbPoll(true)");
                         }
                     }
                     "quit" => app.exit(0),
-                    _ => {}
+                    id => handle_tray_selection(app, id),
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -1130,14 +948,17 @@ fn main() {
                         ..
                     } = event
                     {
-                        toggle_window(tray.app_handle());
+                        windowing::toggle_window(tray.app_handle());
                     }
                 })
                 .build(app)?;
 
-            // Show the card at launch.
-            let _ = window.show();
-            let _ = window.set_always_on_top(true);
+            {
+                let state = app.state::<SettingsState>();
+                let store = state.0.lock().unwrap_or_else(|e| e.into_inner());
+                sync_tray(&store.settings);
+            }
+            windowing::show_window(&window);
 
             // --check-weblogin: open the web-login window for real, let the
             // 15 s watchdog probe fire (prints page state), then report the
@@ -1225,9 +1046,10 @@ fn main() {
                     let y = home.as_ref().map(|p| p.y).unwrap_or(100);
                     let mut out = json!({ "ok": true });
                     // 1) overshoot the right edge → ball
-                    let _ = w.set_position(PhysicalPosition::new(m_right - size.width as i32 + 40, y));
+                    let _ =
+                        w.set_position(PhysicalPosition::new(m_right - size.width as i32 + 40, y));
                     std::thread::sleep(Duration::from_millis(2500));
-                    out["rightBall"] = json!(in_ball_mode());
+                    out["rightBall"] = json!(windowing::in_ball_mode());
                     // Read back the actual DOM state via a hidden command:
                     // confirms the ball-mode switch reached the frontend.
                     let _ = w.eval(concat!(
@@ -1242,24 +1064,26 @@ fn main() {
                         let _ = w.set_position(PhysicalPosition::new(p.x - 300, p.y));
                     }
                     std::thread::sleep(Duration::from_millis(2500));
-                    out["rightExpand"] = json!(!in_ball_mode());
+                    out["rightExpand"] = json!(!windowing::in_ball_mode());
                     // 3) overshoot the left edge → ball
                     let _ = w.set_position(PhysicalPosition::new(m_left - 30, y));
                     std::thread::sleep(Duration::from_millis(2500));
-                    out["leftBall"] = json!(in_ball_mode());
+                    out["leftBall"] = json!(windowing::in_ball_mode());
                     // 4) drag away → expand
                     if let Ok(p) = w.outer_position() {
                         let _ = w.set_position(PhysicalPosition::new(p.x + 300, p.y));
                     }
                     std::thread::sleep(Duration::from_millis(2500));
-                    out["leftExpand"] = json!(!in_ball_mode());
+                    out["leftExpand"] = json!(!windowing::in_ball_mode());
                     if let Some(p) = home {
                         let _ = w.set_position(p);
                     }
-                    out["ok"] = json!(out["rightBall"] == true
-                        && out["rightExpand"] == true
-                        && out["leftBall"] == true
-                        && out["leftExpand"] == true);
+                    out["ok"] = json!(
+                        out["rightBall"] == true
+                            && out["rightExpand"] == true
+                            && out["leftBall"] == true
+                            && out["leftExpand"] == true
+                    );
                     println!("{out}");
                     app_handle.exit(0);
                 });
@@ -1269,9 +1093,13 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_quota,
+            get_ui_config,
+            migrate_settings,
+            save_settings,
             start_drag,
             session_status,
-            set_card_height,
+            reset_session_state,
+            set_panel_layout,
             login_qr_create,
             login_qr_poll,
             login_sms_send,
@@ -1283,9 +1111,12 @@ fn main() {
             close_web_login,
             expand_card,
             dock_ball,
-            sync_menus,
             report_dom,
             get_profile,
+            get_diagnostics,
+            copy_quota_summary,
+            copy_diagnostics,
+            copy_theme_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kimi Quota Bar");

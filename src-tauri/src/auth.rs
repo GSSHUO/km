@@ -77,7 +77,9 @@ fn oscrypt_key_from(password: &str) -> [u8; 16] {
 fn safe_storage_key() -> Result<[u8; 16]> {
     // Electron's Safe Storage password lives in the login Keychain.
     // First run triggers a one-time macOS consent prompt for our binary.
-    Ok(oscrypt_key_from(&keychain_password("kimi-desktop Safe Storage")?))
+    Ok(oscrypt_key_from(&keychain_password(
+        "kimi-desktop Safe Storage",
+    )?))
 }
 
 /// OSCrypt AES-128-CBC ("v10" || ciphertext, IV = 16 spaces), parameterized
@@ -91,7 +93,8 @@ fn oscrypt_decrypt(key: &[u8; 16], blob: &[u8]) -> Result<String> {
     }
     let iv = [0x20u8; 16]; // 16 spaces, per Chromium OSCrypt on macOS
     type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
-    let cipher = Aes128CbcDec::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
+    let cipher =
+        Aes128CbcDec::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
     let mut buf = blob[3..].to_vec();
     let pt = cipher
         .decrypt_padded_mut::<Pkcs7>(&mut buf)
@@ -105,7 +108,8 @@ fn oscrypt_encrypt(key: &[u8; 16], plaintext: &str) -> Result<Vec<u8>> {
 
     let iv = [0x20u8; 16];
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
-    let cipher = Aes128CbcEnc::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
+    let cipher =
+        Aes128CbcEnc::new_from_slices(key, &iv).map_err(|e| anyhow!("AES 密钥错误: {e}"))?;
     let msg = plaintext.as_bytes();
     // cipher is built without `alloc` here, so pad the buffer manually and
     // use encrypt_padded_mut (block-aligned length, Pkcs7 fills the rest).
@@ -162,7 +166,8 @@ fn dpapi_unprotect(cipher: &[u8]) -> Result<Vec<u8>> {
     if ok == 0 {
         return Err(anyhow!("DPAPI 解密失败"));
     }
-    let data = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let data =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
         windows_sys::Win32::Foundation::LocalFree(output.pbData as _);
     }
@@ -195,7 +200,8 @@ fn dpapi_protect(plaintext: &[u8]) -> Result<Vec<u8>> {
     if ok == 0 {
         return Err(anyhow!("DPAPI 加密失败"));
     }
-    let data = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let data =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
         windows_sys::Win32::Foundation::LocalFree(output.pbData as _);
     }
@@ -265,7 +271,11 @@ fn decrypt_safe_storage(blob: &[u8]) -> Result<String> {
         Ok(s) => Ok(s),
         Err(e) => {
             log::warn!("OSCrypt 解密失败，回退旧版 DPAPI: {e}");
-            let cipher = if blob.starts_with(b"v10") { &blob[3..] } else { blob };
+            let cipher = if blob.starts_with(b"v10") {
+                &blob[3..]
+            } else {
+                blob
+            };
             Ok(String::from_utf8(dpapi_unprotect(cipher)?)?)
         }
     }
@@ -326,7 +336,8 @@ fn save_store(doc: &Value) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_string(&out)?)
         .with_context(|| format!("无法写入临时令牌文件: {}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).with_context(|| format!("无法替换令牌文件: {}", path.display()))?;
+    std::fs::rename(&tmp, &path)
+        .with_context(|| format!("无法替换令牌文件: {}", path.display()))?;
     Ok(())
 }
 
@@ -385,9 +396,9 @@ fn refresh_tokens(refresh_token: &str) -> Result<(String, Option<String>)> {
             let rt = v["refresh_token"].as_str().map(|s| s.to_string());
             Ok((at, rt))
         }
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(400, _)) => Err(anyhow!(
-            "AUTH_DEAD: 刷新令牌已失效，请重新登录"
-        )),
+        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(400, _)) => {
+            Err(anyhow!("AUTH_DEAD: 刷新令牌已失效，请重新登录"))
+        }
         Err(ureq::Error::Status(code, _)) => Err(anyhow!("刷新接口返回 {code}")),
         Err(e) => Err(anyhow!("刷新接口请求失败: {e}")),
     }
@@ -507,19 +518,22 @@ pub fn fetch_quota(access_token: &str) -> Result<Value> {
     }
 }
 
-/// Fetch quota, transparently renewing the session when needed:
-/// fresh stored token → forced refresh on 401 (one retry).
-pub fn fetch_quota_smart() -> Result<Value> {
+pub fn fetch_quota_smart_with_identity() -> Result<(Value, String)> {
+    use sha2::{Digest, Sha256};
+
     let token = get_valid_access_token(false)?;
-    match fetch_quota(&token) {
+    let identity = jwt_sub(&token).unwrap_or_else(|| "unknown-account".into());
+    let digest = Sha256::digest(identity.as_bytes());
+    let account_hash = digest.iter().take(12).map(|b| format!("{b:02x}")).collect();
+    let result = match fetch_quota(&token) {
         Err(e) if e.to_string().starts_with("AUTH_EXPIRED") => {
             let token = get_valid_access_token(true)?;
             fetch_quota(&token)
         }
         other => other,
-    }
+    };
+    result.map(|payload| (payload, account_hash))
 }
-
 
 // ---------- own session store (in-app login) ----------
 //
@@ -636,7 +650,11 @@ pub fn save_session(doc: &Value) -> Result<()> {
 // desktop client's session; the next in-card login clears it.
 
 fn logged_out_marker() -> Option<std::path::PathBuf> {
-    Some(dirs::config_dir()?.join("kimi-quota-bar").join("logged-out"))
+    Some(
+        dirs::config_dir()?
+            .join("kimi-quota-bar")
+            .join("logged-out"),
+    )
 }
 
 pub fn is_logged_out() -> bool {
@@ -820,7 +838,11 @@ pub fn poll_login_qr_status(code: &str) -> Result<Value> {
 /// Used by --check-qr to exercise the whole chain without a phone.
 pub fn confirm_login_qr(code: &str, bearer: &str) -> Result<()> {
     let body = serde_json::json!({ "code": code, "device_id": device_id() }).to_string();
-    auth_rpc(&format!("{AUTH_SVC}/ConfirmLoginQRCode"), &body, Some(bearer))?;
+    auth_rpc(
+        &format!("{AUTH_SVC}/ConfirmLoginQRCode"),
+        &body,
+        Some(bearer),
+    )?;
     Ok(())
 }
 

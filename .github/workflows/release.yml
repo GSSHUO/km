@@ -40,7 +40,10 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - name: Install frontend deps
-        run: npm install
+        run: npm ci
+
+      - name: Offline checks
+        run: npm run check && npm run test:ui
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
