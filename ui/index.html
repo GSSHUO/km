@@ -32,12 +32,12 @@
           <span class="meta"><span class="label">月度额度<i class="current-marker"></i></span><span class="sub" id="reset-total">正在获取额度</span></span>
           <span class="pct" id="pct-total">—</span>
         </button>
-        <button class="quota-row" data-metric="5h" id="row-5h" aria-label="5小时窗口，点击设为浮珠读数">
+        <button class="quota-row" data-metric="5h" id="row-5h" aria-label="5小时窗口，双击设为浮珠读数">
           <span class="ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="bar" id="ring-5h" cx="24" cy="24" r="20"/></svg></span>
           <span class="meta"><span class="label">5小时窗口<i class="current-marker"></i></span><span class="sub" id="reset-5h">—</span></span>
           <span class="pct" id="pct-5h">—</span>
         </button>
-        <button class="quota-row" data-metric="7d" id="row-7d" aria-label="7天窗口，点击设为浮珠读数">
+        <button class="quota-row" data-metric="7d" id="row-7d" aria-label="7天窗口，双击设为浮珠读数">
           <span class="ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="bar" id="ring-7d" cx="24" cy="24" r="20"/></svg></span>
           <span class="meta"><span class="label">7天窗口<i class="current-marker"></i></span><span class="sub" id="reset-7d">—</span></span>
           <span class="pct" id="pct-7d">—</span>
@@ -96,9 +96,6 @@
         <div class="theme-preview" id="themePreview"><div class="preview-orb"><span>61.20%</span></div><div class="preview-card"><b>Kimi 额度</b><span>7天窗口</span><strong>61.20%</strong></div></div>
         <div id="appearanceThemeTab" class="appearance-tab-body">
           <div class="section-title">内置主题</div><div class="preset-grid" id="presetGrid"></div>
-          <div class="section-title">我的主题</div><div class="custom-list" id="customList"></div>
-          <label class="field-label">主题名称<input id="customThemeName" maxlength="24" value="我的主题"/></label>
-          <button class="secondary-btn" id="saveAsThemeBtn">从当前基底另存为我的主题</button>
           <div class="section-title">主题文本</div><textarea id="themeText" rows="4" maxlength="16384" placeholder="粘贴主题 JSON 文本"></textarea>
           <div class="button-row"><button class="secondary-btn" id="importThemeBtn">粘贴导入</button><button class="secondary-btn" id="exportThemeBtn">复制主题文本</button></div>
         </div>
@@ -109,7 +106,7 @@
         <div id="appearanceMotionTab" class="appearance-tab-body hidden">
           <div class="section-title">装饰动效</div>
           <label class="radio-row"><input type="radio" name="motion" value="static"/><span><b>静止</b><small>无循环动画，保留材质与渐变</small></span></label>
-          <label class="radio-row"><input type="radio" name="motion" value="lively"/><span><b>灵动</b><small>单层氛围光，静置 15 秒后冻结</small></span></label>
+          <label class="radio-row"><input type="radio" name="motion" value="lively"/><span><b>灵动</b><small>8 枚基础粒子与内圈游星，静置 15 秒后冻结</small></span></label>
           <label class="radio-row"><input type="radio" name="motion" value="stardust"/><span><b>星尘 · 观赏模式</b><small>保留旧版华丽粒子、双游星与辉光</small></span></label>
           <label class="field-label">原生材质<select id="materialMode"><option value="auto">自动（推荐）</option><option value="matte">实色雾面</option><option value="enhanced">增强玻璃</option></select></label>
           <p class="settings-note">Windows 默认使用透明窗口 + CSS 雾面，不叠加整窗 Acrylic。系统减少动态效果与高对比度偏好始终优先。</p>

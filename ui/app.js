@@ -69,10 +69,10 @@ function render(nextPayload) {
     setRing(metric, ratio);
     $(`pct-${metric}`).textContent = Q.percent(ratio);
     const row = $(`row-${metric}`);
-    row.disabled = disabled;
+    row.setAttribute("aria-disabled", String(disabled));
     row.classList.toggle("disabled", disabled);
     row.classList.toggle("selected", settings && settings.orb.metric === metric);
-    row.setAttribute("aria-label", `${label}${settings && settings.orb.metric === metric ? "，当前浮珠读数" : "，点击设为浮珠读数"}${disabled ? "，未启用" : ""}`);
+    row.setAttribute("aria-label", `${label}${settings && settings.orb.metric === metric ? "，当前浮珠读数" : "，双击设为浮珠读数"}${disabled ? "，未启用" : ""}`);
     let reset = "—";
     if (stat) {
       if (stat.enabled === false) reset = "未启用";
@@ -392,7 +392,6 @@ function updatePreview() {
   preview.style.setProperty("--preview-surface", theme.palette.surface);
   preview.style.setProperty("--preview-text", theme.palette.text);
   preview.style.setProperty("--preview-accent", theme.palette.accent);
-  $("customThemeName").value = editor.custom() ? editor.custom().name : theme.label;
   $("undoBtn").disabled = editor.index <= 0;
   $("redoBtn").disabled = editor.index >= editor.history.length - 1;
 }
@@ -411,26 +410,10 @@ function renderPresetLists() {
     button.addEventListener("click", () => { editor.selectPreset(preset.id); renderAppearance(); });
     presetGrid.appendChild(button);
   });
-  const customList = $("customList");
-  customList.replaceChildren();
-  if (!editor.draft.theme.customThemes.length) {
-    const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = "尚未保存自定义主题"; customList.appendChild(empty);
-  }
-  editor.draft.theme.customThemes.forEach((custom) => {
-    const button = document.createElement("button"); button.className = `custom-item${editor.draft.theme.selectedId === custom.id ? " active" : ""}`;
-    const base = editor.presets.find((item) => item.id === custom.basePresetId);
-    const swatch = document.createElement("span"); swatch.className = "swatch";
-    swatch.style.setProperty("--swatch-a", custom.overrides.accent || base.palette.accent);
-    swatch.style.setProperty("--swatch-b", custom.overrides.background || base.palette.background);
-    const label = document.createElement("span"); label.textContent = custom.name;
-    button.append(swatch, label);
-    button.addEventListener("click", () => { editor.draft.theme.selectedId = custom.id; editor.checkpoint(); renderAppearance(); });
-    customList.appendChild(button);
-  });
 }
 
 const FIELD_GROUPS = [
-  { id: "overall", label: "整体", colors: [["accent", "强调色"]], ranges: [["cardOpacity", "卡片透明度", .75, 1, .01], ["orbOpacity", "浮珠透明度", .75, 1, .01]], appearance: true },
+  { id: "overall", label: "整体", colors: [["accent", "强调色"]], ranges: [["cardOpacity", "卡片透明度", .05, 1, .01], ["orbOpacity", "浮珠透明度", .05, 1, .01]], appearance: true },
   { id: "orb", label: "浮珠", colors: [["orbBackground", "浮珠底色"], ["track", "轨道"], ["orbText", "数字"], ["glow", "光晕色"]], ranges: [["orbGlow", "光晕强度", 0, .5, .01]], gradient: true, particles: true },
   { id: "card", label: "卡片", colors: [["background", "背景"], ["surface", "Surface"], ["border", "边线"], ["text", "主文字"], ["secondary", "副文字"], ["cardTrack", "额度环轨道"]] },
   { id: "controls", label: "控件", colors: [["accent", "按钮强调"], ["buttonText", "按钮字色"], ["selected", "选中底色"], ["focus", "焦点色"]] },
@@ -464,10 +447,6 @@ function rangeField(key, label, min, max, step, value) {
 function renderThemeFields() {
   const container = $("themeFields"); container.replaceChildren();
   const theme = editor.resolved();
-  const custom = editor.custom();
-  if (!custom) {
-    const note = document.createElement("div"); note.className = "empty-state"; note.textContent = "修改任一字段时会自动从当前预设创建“我的主题”"; container.appendChild(note);
-  }
   FIELD_GROUPS.forEach((group) => {
     const section = document.createElement("section"); section.className = "field-group";
     const header = document.createElement("div"); header.className = "field-group-header";
@@ -576,8 +555,6 @@ function bindAppearance() {
   $("appearanceBackBtn").addEventListener("click", closeAppearance);
   $("cancelAppearanceBtn").addEventListener("click", closeAppearance);
   $("saveAppearanceBtn").addEventListener("click", saveAppearance);
-  $("saveAsThemeBtn").addEventListener("click", () => { try { editor.createCustom($("customThemeName").value); renderAppearance(); } catch (error) { toast(error.message); } });
-  $("customThemeName").addEventListener("change", () => { editor.rename($("customThemeName").value); renderAppearance(); });
   $("undoBtn").addEventListener("click", () => { editor.undo(); renderAppearance(); });
   $("redoBtn").addEventListener("click", () => { editor.redo(); renderAppearance(); });
   $("resetBaseBtn").addEventListener("click", () => { editor.resetBase(); renderAppearance(); });
@@ -588,6 +565,38 @@ function bindAppearance() {
   $("importThemeBtn").addEventListener("click", () => { try { editor.importText($("themeText").value); renderAppearance(); toast("主题已导入草稿，保存后生效"); } catch (error) { toast(error.message); } });
   document.querySelectorAll('input[name="motion"]').forEach((input) => input.addEventListener("change", () => { editor.draft.motion.preset = input.value; editor.checkpoint(); updatePreview(); }));
   $("materialMode").addEventListener("change", () => { editor.draft.material.mode = $("materialMode").value; editor.checkpoint(); });
+}
+
+function bindCardGestures() {
+  let down = null;
+  let suppressDoubleClick = false;
+  $("quotaView").addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || event.target.closest("button:not(.quota-row), input, textarea, select, [role='dialog']")) return;
+    suppressDoubleClick = false;
+    down = { x: event.clientX, y: event.clientY, dragging: false };
+  });
+  window.addEventListener("mousemove", (event) => {
+    if (!down || down.dragging || Math.hypot(event.clientX - down.x, event.clientY - down.y) <= 6) return;
+    down.dragging = true;
+    suppressDoubleClick = true;
+    event.preventDefault();
+    invoke("start_drag");
+  });
+  window.addEventListener("mouseup", () => { down = null; });
+  document.querySelectorAll(".quota-row").forEach((row) => row.addEventListener("dblclick", (event) => {
+    if (suppressDoubleClick || row.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      return;
+    }
+    selectMetric(row.dataset.metric);
+  }));
+  document.querySelector(".title").addEventListener("dblclick", (event) => {
+    if (suppressDoubleClick) {
+      event.preventDefault();
+      return;
+    }
+    invoke("dock_ball");
+  });
 }
 
 function bindEvents() {
@@ -606,7 +615,6 @@ function bindEvents() {
     $("orbDisplayBtn").setAttribute("aria-expanded", String(opening));
   });
   document.querySelectorAll("[data-orb-metric]").forEach((button) => button.addEventListener("click", () => selectMetric(button.dataset.orbMetric)));
-  document.querySelectorAll(".quota-row").forEach((row) => row.addEventListener("click", () => selectMetric(row.dataset.metric)));
   $("copySummaryBtn").addEventListener("click", async () => { hide($("moreMenu")); const result = await invoke("copy_quota_summary"); toast(result.ok ? "额度摘要已复制" : result.error); });
   $("copyDiagnosticsBtn").addEventListener("click", async () => { const result = await invoke("copy_diagnostics"); toast(result.ok ? "脱敏诊断已复制" : result.error); });
   $("dockBtn").addEventListener("click", () => invoke("dock_ball"));
@@ -628,10 +636,7 @@ function bindEvents() {
     hide($("confirmMask")); await invoke("logout"); payload = null; render(); await closePanel(); refresh(true);
   });
   document.addEventListener("click", (event) => { if (!event.target.closest("#moreMenu, #moreBtn")) hide($("moreMenu")); });
-  document.querySelectorAll(".drag-region").forEach((region) => region.addEventListener("mousedown", (event) => {
-    if (event.button === 0 && !event.target.closest("button, input, .quota-row")) invoke("start_drag");
-  }));
-  document.querySelector(".title").addEventListener("dblclick", () => invoke("dock_ball"));
+  bindCardGestures();
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!$("confirmMask").classList.contains("hidden")) hide($("confirmMask"));

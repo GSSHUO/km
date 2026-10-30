@@ -17,7 +17,7 @@
   --critical: #F19B9B;
   --unknown: #A8B2C8;
   --card-opacity: .88;
-  --orb-opacity: .9;
+  --orb-opacity: .3;
   --orb-glow: .24;
   --card-bg: rgba(13, 16, 27, var(--card-opacity));
   --orb-bg: rgba(13, 16, 27, var(--orb-opacity));
@@ -166,15 +166,13 @@ body.theme-abyss .card:active { background-color: rgba(22, 22, 32, .2); }
 .preview-card strong { color: var(--preview-accent); font-size: 13px; }
 .section-title { margin: 12px 0 7px; color: var(--secondary); font-size: 10.5px; font-weight: 600; }
 .preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.preset-item, .custom-item { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); text-align: left; font-size: 10.5px; }
-.preset-item.active, .custom-item.active { border-color: var(--accent); background: var(--selected); }
+.preset-item { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); text-align: left; font-size: 10.5px; }
+.preset-item.active { border-color: var(--accent); background: var(--selected); }
 .swatch { width: 23px; height: 23px; flex: none; border: 1px solid var(--border); border-radius: 50%; background: linear-gradient(135deg, var(--swatch-a), var(--swatch-b)); }
-.preset-item span:last-child, .custom-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.custom-list { display: grid; gap: 6px; }
+.preset-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-state { padding: 9px; color: var(--secondary); border: 1px dashed var(--border); border-radius: 8px; font-size: 10.5px; text-align: center; }
 .field-label { display: grid; gap: 5px; margin-top: 10px; color: var(--secondary); font-size: 10.5px; }
 .field-label input { width: 100%; color: var(--text); }
-#saveAsThemeBtn { width: 100%; margin-top: 7px; }
 .button-row { display: flex; gap: 7px; margin-top: 7px; }
 .button-row > * { flex: 1; }
 .editor-toolbar { display: flex; gap: 5px; margin-bottom: 8px; }
@@ -231,7 +229,7 @@ body.theme-abyss.ball-mode .ball {
 .orb-swirl { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent, color-mix(in srgb, var(--glow) 46%, transparent), color-mix(in srgb, var(--accent) 36%, transparent), transparent 80%); opacity: .6; pointer-events: none; animation: orb-spin 24s linear infinite; will-change: transform; }
 @keyframes orb-spin { to { transform: rotate(360deg); } }
 .orb-fx { display: none; position: absolute; inset: 0; z-index: 2; width: 60px; height: 60px; border-radius: 50%; pointer-events: none; }
-body.motion-stardust.ball-mode .orb-fx { display: block; }
+body.motion-lively.ball-mode .orb-fx, body.motion-stardust.ball-mode .orb-fx { display: block; }
 body.motion-static .orb-swirl { animation: none; opacity: .34; }
 body.fx-resting .orb-swirl { animation-play-state: paused; }
 .orb-body { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; }

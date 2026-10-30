@@ -14,7 +14,7 @@
       "gradient": ["#60DFC8", "#64BCFF", "#A78BFA"],
       "particles": ["#60DFC8", "#A78BFA"]
     },
-    "material": { "orbGlow": 0.24, "cardOpacity": 0.12, "orbOpacity": 0.72 },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.12, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -32,7 +32,7 @@
       "gradient": ["#73E2B5", "#54C7C0", "#CDE998"],
       "particles": ["#73E2B5", "#CDE998"]
     },
-    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -50,7 +50,7 @@
       "gradient": ["#F490BC", "#F3CB79", "#82D9B5", "#86C7F0", "#B8A1EB"],
       "particles": ["#F490BC", "#86C7F0"]
     },
-    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -68,7 +68,7 @@
       "gradient": ["#8DE8E1", "#69BFFF", "#879CF4"],
       "particles": ["#8DE8E1", "#879CF4"]
     },
-    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -86,7 +86,7 @@
       "gradient": ["#FFCB99", "#F594A3", "#BD9EEA"],
       "particles": ["#FFCB99", "#BD9EEA"]
     },
-    "material": { "orbGlow": 0.24, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -104,7 +104,7 @@
       "gradient": ["#E9D3A4", "#D8B66E", "#BA8751"],
       "particles": ["#E9D3A4", "#BA8751"]
     },
-    "material": { "orbGlow": 0.18, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.18, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   },
   {
@@ -140,7 +140,7 @@
       "gradient": ["#DCE4EC", "#AAB8C8", "#7C91A7"],
       "particles": ["#DCE4EC", "#7C91A7"]
     },
-    "material": { "orbGlow": 0.08, "cardOpacity": 0.88, "orbOpacity": 0.9 },
+    "material": { "orbGlow": 0.08, "cardOpacity": 0.2, "orbOpacity": 0.3 },
     "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
   }
 ]

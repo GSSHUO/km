@@ -7,7 +7,7 @@
   function defaults() {
     return {
       schemaVersion: 1,
-      theme: { selectedId: "abyss", customThemes: [] },
+      theme: { selectedId: "abyss", overrides: {} },
       orb: { metric: "total", decimals: 2 },
       motion: { preset: "lively" },
       material: { mode: "auto" },
@@ -16,23 +16,16 @@
   }
 
   function resolveTheme(presets, settings) {
-    const custom = settings.theme.customThemes.find((item) => item.id === settings.theme.selectedId);
-    const baseId = custom ? custom.basePresetId : settings.theme.selectedId;
-    const base = presets.find((item) => item.id === baseId) || presets[0];
+    const base = presets.find((item) => item.id === settings.theme.selectedId) || presets[0];
     const theme = clone(base);
-    if (custom) {
-      theme.id = custom.id;
-      theme.label = custom.name;
-      theme.basePresetId = custom.basePresetId;
-      const overrides = custom.overrides || {};
-      Object.entries(overrides).forEach(([key, value]) => {
-        if (key === "appearance") theme.appearance = value;
-        else if (["cardOpacity", "orbOpacity", "orbGlow"].includes(key)) theme.material[key] = value;
-        else if (/^status(Normal|Warning|Critical|Unknown)$/.test(key)) {
-          theme.status[key.replace("status", "").toLowerCase()] = value;
-        } else theme.palette[key] = clone(value);
-      });
-    }
+    const overrides = settings.theme.overrides && settings.theme.overrides[theme.id] || {};
+    Object.entries(overrides).forEach(([key, value]) => {
+      if (key === "appearance") theme.appearance = value;
+      else if (["cardOpacity", "orbOpacity", "orbGlow"].includes(key)) theme.material[key] = value;
+      else if (/^status(Normal|Warning|Critical|Unknown)$/.test(key)) {
+        theme.status[key.replace("status", "").toLowerCase()] = value;
+      } else theme.palette[key] = clone(value);
+    });
     return theme;
   }
 
@@ -108,7 +101,7 @@
       } else if (key === "particles") {
         if (!Array.isArray(value) || value.length !== 2 || !value.every(isHex)) throw new Error("粒子色需为 2 个合法色值");
       } else if (["cardOpacity", "orbOpacity"].includes(key)) {
-        if (typeof value !== "number" || value < 0.75 || value > 1) throw new Error("透明度必须在 0.75–1.0 之间");
+        if (typeof value !== "number" || value < 0.05 || value > 1) throw new Error("透明度必须在 0.05–1.0 之间");
       } else if (key === "orbGlow") {
         if (typeof value !== "number" || value < 0 || value > 0.5) throw new Error("光晕必须在 0–0.5 之间");
       } else if (key === "appearance") {
@@ -134,12 +127,16 @@
     constructor(config) {
       this.presets = clone(config.presets);
       this.draft = clone(config.settings);
+      const legacy = (this.draft.theme.customThemes || []).find((item) => item.id === this.draft.theme.selectedId);
+      const fallback = legacy && this.presets.some((item) => item.id === legacy.basePresetId) ? legacy.basePresetId : "abyss";
+      const selectedId = this.presets.some((item) => item.id === this.draft.theme.selectedId) ? this.draft.theme.selectedId : fallback;
+      this.draft.theme = { selectedId, overrides: clone(this.draft.theme.overrides || {}) };
       this.history = [clone(this.draft)];
       this.index = 0;
     }
 
     resolved() { return resolveTheme(this.presets, this.draft); }
-    custom() { return this.draft.theme.customThemes.find((item) => item.id === this.draft.theme.selectedId); }
+    currentOverrides() { return this.draft.theme.overrides[this.draft.theme.selectedId] || {}; }
 
     checkpoint() {
       this.history = this.history.slice(0, this.index + 1);
@@ -154,54 +151,32 @@
       this.checkpoint();
     }
 
-    createCustom(name) {
-      if (this.draft.theme.customThemes.length >= 8) throw new Error("最多保存 8 个自定义主题，请先整理已有项");
-      const current = this.custom();
-      const basePresetId = current ? current.basePresetId : this.draft.theme.selectedId;
-      const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-      this.draft.theme.customThemes.push({
-        id,
-        name: (name || "我的主题").trim().slice(0, 24) || "我的主题",
-        basePresetId,
-        overrides: current ? clone(current.overrides) : {},
-      });
-      this.draft.theme.selectedId = id;
-      this.checkpoint();
-      return id;
-    }
-
     setOverride(key, value) {
-      if (!this.custom()) this.createCustom("我的主题");
-      this.custom().overrides[key] = clone(value);
-      validateOverrides(this.custom().overrides);
-      this.checkpoint();
-    }
-
-    rename(name) {
-      if (!this.custom()) this.createCustom(name);
-      else this.custom().name = name;
+      validateOverrides({ [key]: value });
+      const id = this.draft.theme.selectedId;
+      if (!this.draft.theme.overrides[id]) this.draft.theme.overrides[id] = {};
+      this.draft.theme.overrides[id][key] = clone(value);
       this.checkpoint();
     }
 
     resetField(key) {
-      if (this.custom()) {
-        delete this.custom().overrides[key];
-        this.checkpoint();
-      }
+      this.resetGroup([key]);
     }
 
     resetGroup(keys) {
-      if (this.custom()) {
-        keys.forEach((key) => delete this.custom().overrides[key]);
-        this.checkpoint();
-      }
+      const id = this.draft.theme.selectedId;
+      const overrides = this.draft.theme.overrides[id];
+      if (!overrides) return;
+      keys.forEach((key) => delete overrides[key]);
+      if (!Object.keys(overrides).length) delete this.draft.theme.overrides[id];
+      this.checkpoint();
     }
 
     resetBase() {
-      if (this.custom()) {
-        this.custom().overrides = {};
-        this.checkpoint();
-      }
+      const id = this.draft.theme.selectedId;
+      if (!this.draft.theme.overrides[id]) return;
+      delete this.draft.theme.overrides[id];
+      this.checkpoint();
     }
 
     undo() {
@@ -215,25 +190,22 @@
     }
 
     exportText() {
-      const custom = this.custom();
       const theme = this.resolved();
       return JSON.stringify({
         schemaVersion: 1,
-        name: custom ? custom.name : theme.label,
-        basePresetId: custom ? custom.basePresetId : theme.id,
-        overrides: custom ? custom.overrides : {},
+        name: theme.label,
+        basePresetId: theme.id,
+        overrides: this.currentOverrides(),
       }, null, 2);
     }
 
     importText(text) {
-      if (this.draft.theme.customThemes.length >= 8) throw new Error("最多保存 8 个自定义主题");
       const parsed = parseThemeText(text);
       if (!this.presets.some((item) => item.id === parsed.basePresetId)) throw new Error("基底预设不存在");
-      const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-      this.draft.theme.customThemes.push({ id, ...parsed });
-      this.draft.theme.selectedId = id;
+      this.draft.theme.overrides[parsed.basePresetId] = clone(parsed.overrides);
+      this.draft.theme.selectedId = parsed.basePresetId;
       this.checkpoint();
-      return id;
+      return parsed.basePresetId;
     }
   }
 

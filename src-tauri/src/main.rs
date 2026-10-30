@@ -21,7 +21,6 @@ struct TrayChecks {
     themes: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
     metrics: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
     motions: Vec<tauri::menu::CheckMenuItem<tauri::Wry>>,
-    custom: tauri::menu::CheckMenuItem<tauri::Wry>,
 }
 static TRAY_CHECKS: std::sync::OnceLock<TrayChecks> = std::sync::OnceLock::new();
 
@@ -33,10 +32,6 @@ fn sync_tray(settings: &Settings) {
         let id = item.id().as_ref();
         let _ = item.set_checked(id == format!("theme-{}", settings.theme.selected_id));
     }
-    let custom_active =
-        !settings::preset_ids(&serde_json::from_str(settings::THEME_PRESETS).unwrap_or(json!([])))
-            .contains(&settings.theme.selected_id);
-    let _ = checks.custom.set_checked(custom_active);
     for item in &checks.metrics {
         let _ = item.set_checked(item.id().as_ref() == format!("metric-{}", settings.orb.metric));
     }
@@ -875,11 +870,6 @@ fn main() {
                 theme_menu = theme_menu.item(&item);
                 theme_items.push(item);
             }
-            let custom_item =
-                CheckMenuItemBuilder::with_id("theme-custom-current", "自定义 · 当前主题")
-                    .enabled(false)
-                    .build(app)?;
-            theme_menu = theme_menu.item(&custom_item);
             let theme_menu = theme_menu.build()?;
 
             let mut metric_items = Vec::new();
@@ -913,7 +903,6 @@ fn main() {
                 themes: theme_items,
                 metrics: metric_items,
                 motions: motion_items,
-                custom: custom_item,
             });
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let menu = MenuBuilder::new(app)

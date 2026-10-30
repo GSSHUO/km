@@ -5,7 +5,6 @@ use std::sync::Mutex;
 
 pub const SCHEMA_VERSION: u64 = 1;
 pub const THEME_PRESETS: &str = include_str!("../../ui/themes.json");
-const MAX_CUSTOM_THEMES: usize = 8;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -22,12 +21,12 @@ pub struct Settings {
 #[serde(default, rename_all = "camelCase")]
 pub struct ThemeSettings {
     pub selected_id: String,
-    pub custom_themes: Vec<CustomTheme>,
+    pub overrides: Map<String, Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct CustomTheme {
+pub struct ThemeText {
     pub id: String,
     pub name: String,
     pub base_preset_id: String,
@@ -76,16 +75,16 @@ impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
             selected_id: "abyss".into(),
-            custom_themes: Vec::new(),
+            overrides: Map::new(),
         }
     }
 }
 
-impl Default for CustomTheme {
+impl Default for ThemeText {
     fn default() -> Self {
         Self {
             id: String::new(),
-            name: "我的主题".into(),
+            name: "导入的主题".into(),
             base_preset_id: "abyss".into(),
             overrides: json!({}),
         }
@@ -262,9 +261,34 @@ enum LoadFailure {
     Invalid(String),
 }
 
+fn normalize_legacy_theme(value: &mut Value, presets: &Value) {
+    let ids = preset_ids(presets);
+    let Some(theme) = value.get_mut("theme").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let selected = theme
+        .get("selectedId")
+        .and_then(Value::as_str)
+        .unwrap_or("abyss")
+        .to_string();
+    let legacy = theme.remove("customThemes");
+    if ids.contains(&selected) {
+        return;
+    }
+    let base = legacy
+        .as_ref()
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|item| item["id"].as_str() == Some(selected.as_str()))
+        .and_then(|item| item["basePresetId"].as_str())
+        .filter(|id| ids.iter().any(|preset| preset == id));
+    theme.insert("selectedId".into(), json!(base.unwrap_or("abyss")));
+}
+
 fn read_settings(path: &Path) -> Result<Settings, LoadFailure> {
     let raw = std::fs::read_to_string(path).map_err(|e| LoadFailure::Invalid(e.to_string()))?;
-    let value: Value =
+    let mut value: Value =
         serde_json::from_str(&raw).map_err(|e| LoadFailure::Invalid(e.to_string()))?;
     if value
         .get("schemaVersion")
@@ -274,13 +298,11 @@ fn read_settings(path: &Path) -> Result<Settings, LoadFailure> {
     {
         return Err(LoadFailure::FutureVersion);
     }
+    let presets = serde_json::from_str(THEME_PRESETS).unwrap_or(json!([]));
+    normalize_legacy_theme(&mut value, &presets);
     let settings: Settings =
         serde_json::from_value(value).map_err(|e| LoadFailure::Invalid(e.to_string()))?;
-    validate(
-        &serde_json::from_str(THEME_PRESETS).unwrap_or(json!([])),
-        &settings,
-    )
-    .map_err(LoadFailure::Invalid)?;
+    validate(&presets, &settings).map_err(LoadFailure::Invalid)?;
     Ok(settings)
 }
 
@@ -359,8 +381,8 @@ fn validate_overrides(overrides: &Value) -> Result<(), String> {
                 }
             }
             "cardOpacity" | "orbOpacity" => {
-                if !value.as_f64().is_some_and(|v| (0.75..=1.0).contains(&v)) {
-                    return Err("透明度必须在 0.75–1.0 之间".into());
+                if !value.as_f64().is_some_and(|v| (0.05..=1.0).contains(&v)) {
+                    return Err("透明度必须在 0.05–1.0 之间".into());
                 }
             }
             "orbGlow" => {
@@ -395,34 +417,13 @@ pub fn validate(presets: &Value, settings: &Settings) -> Result<(), String> {
         return Err("设置版本不受支持".into());
     }
     let ids = preset_ids(presets);
-    if settings.theme.custom_themes.len() > MAX_CUSTOM_THEMES {
-        return Err("最多保存 8 个自定义主题".into());
+    for (id, overrides) in &settings.theme.overrides {
+        if !ids.contains(id) {
+            return Err("主题覆盖值对应内置主题不存在".into());
+        }
+        validate_overrides(overrides)?;
     }
-    let mut custom_ids = Vec::new();
-    for custom in &settings.theme.custom_themes {
-        if custom.id.is_empty()
-            || custom.id.len() > 64
-            || !custom
-                .id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            || ids.contains(&custom.id)
-            || custom_ids.contains(&custom.id)
-        {
-            return Err("自定义主题 ID 无效或重复".into());
-        }
-        if custom.name.trim().is_empty() || custom.name.chars().count() > 24 {
-            return Err("主题名称需为 1–24 个字符".into());
-        }
-        if !ids.contains(&custom.base_preset_id) {
-            return Err("自定义主题的基底预设不存在".into());
-        }
-        validate_overrides(&custom.overrides)?;
-        custom_ids.push(custom.id.clone());
-    }
-    if !ids.contains(&settings.theme.selected_id)
-        && !custom_ids.contains(&settings.theme.selected_id)
-    {
+    if !ids.contains(&settings.theme.selected_id) {
         return Err("选中的主题不存在".into());
     }
     if !["total", "5h", "7d"].contains(&settings.orb.metric.as_str()) {
@@ -444,47 +445,43 @@ pub fn validate(presets: &Value, settings: &Settings) -> Result<(), String> {
 }
 
 pub fn resolve_theme(presets: &Value, settings: &Settings) -> Value {
-    let custom = settings
-        .theme
-        .custom_themes
-        .iter()
-        .find(|t| t.id == settings.theme.selected_id);
-    let base_id = custom
-        .map(|c| c.base_preset_id.as_str())
-        .unwrap_or(settings.theme.selected_id.as_str());
     let mut theme = presets
         .as_array()
-        .and_then(|items| items.iter().find(|p| p["id"] == base_id))
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|p| p["id"].as_str() == Some(settings.theme.selected_id.as_str()))
+        })
         .cloned()
         .unwrap_or_else(|| presets[0].clone());
-    if let Some(custom) = custom {
-        theme["id"] = json!(custom.id);
-        theme["label"] = json!(custom.name);
-        theme["basePresetId"] = json!(custom.base_preset_id);
-        if let Some(overrides) = custom.overrides.as_object() {
-            for (key, value) in overrides {
-                match key.as_str() {
-                    "appearance" => theme["appearance"] = value.clone(),
-                    "cardOpacity" | "orbOpacity" | "orbGlow" => {
-                        theme["material"][key] = value.clone()
-                    }
-                    "statusNormal" | "statusWarning" | "statusCritical" | "statusUnknown" => {
-                        let status_key = key.trim_start_matches("status").to_lowercase();
-                        theme["status"][status_key] = value.clone();
-                    }
-                    _ => theme["palette"][key] = value.clone(),
+    if let Some(overrides) = settings
+        .theme
+        .overrides
+        .get(&settings.theme.selected_id)
+        .and_then(Value::as_object)
+    {
+        for (key, value) in overrides {
+            match key.as_str() {
+                "appearance" => theme["appearance"] = value.clone(),
+                "cardOpacity" | "orbOpacity" | "orbGlow" => theme["material"][key] = value.clone(),
+                "statusNormal" | "statusWarning" | "statusCritical" | "statusUnknown" => {
+                    let status_key = key.trim_start_matches("status").to_lowercase();
+                    theme["status"][status_key] = value.clone();
                 }
+                _ => theme["palette"][key] = value.clone(),
             }
         }
     }
     theme
 }
 
-pub fn settings_from_value(value: Value) -> Result<Settings, String> {
+pub fn settings_from_value(mut value: Value) -> Result<Settings, String> {
+    let presets = serde_json::from_str(THEME_PRESETS).unwrap_or(json!([]));
+    normalize_legacy_theme(&mut value, &presets);
     serde_json::from_value(value).map_err(|e| format!("设置格式无效：{e}"))
 }
 
-pub fn merged_theme_text(input: &str) -> Result<CustomTheme, String> {
+pub fn merged_theme_text(input: &str) -> Result<ThemeText, String> {
     if input.len() > 16 * 1024 {
         return Err("主题文本超过 16KiB".into());
     }
@@ -500,7 +497,7 @@ pub fn merged_theme_text(input: &str) -> Result<CustomTheme, String> {
     if map.keys().any(|k| !allowed.contains(&k.as_str())) {
         return Err("主题文本包含未允许字段".into());
     }
-    let custom = CustomTheme {
+    let theme = ThemeText {
         id: String::new(),
         name: value["name"].as_str().unwrap_or("导入的主题").to_string(),
         base_preset_id: value["basePresetId"]
@@ -509,14 +506,14 @@ pub fn merged_theme_text(input: &str) -> Result<CustomTheme, String> {
             .to_string(),
         overrides: value.get("overrides").cloned().unwrap_or_else(|| json!({})),
     };
-    validate_overrides(&custom.overrides)?;
-    if custom.name.trim().is_empty() || custom.name.chars().count() > 24 {
+    validate_overrides(&theme.overrides)?;
+    if theme.name.trim().is_empty() || theme.name.chars().count() > 24 {
         return Err("主题名称需为 1–24 个字符".into());
     }
-    Ok(custom)
+    Ok(theme)
 }
 
-pub fn export_theme(theme: &CustomTheme) -> String {
+pub fn export_theme(theme: &ThemeText) -> String {
     let mut map = Map::new();
     map.insert("schemaVersion".into(), json!(SCHEMA_VERSION));
     map.insert("name".into(), json!(theme.name));
@@ -539,7 +536,11 @@ mod tests {
     fn defaults_are_lively_and_valid() {
         let presets: Value = serde_json::from_str(THEME_PRESETS).unwrap();
         assert_eq!(presets.as_array().unwrap().len(), 8);
-        validate(&presets, &Settings::default()).unwrap();
+        let settings = Settings::default();
+        assert_eq!(settings.theme.selected_id, "abyss");
+        assert_eq!(settings.motion.preset, "lively");
+        assert!(settings.theme.overrides.is_empty());
+        validate(&presets, &settings).unwrap();
     }
 
     #[test]
@@ -547,15 +548,62 @@ mod tests {
         let path = temp_path("invalid");
         let mut store = SettingsStore::load(path.clone());
         let mut next = Settings::default();
-        next.theme.custom_themes.push(CustomTheme {
-            id: "custom-one".into(),
-            name: "测试".into(),
-            base_preset_id: "abyss".into(),
-            overrides: json!({ "accent": "red" }),
-        });
-        next.theme.selected_id = "custom-one".into();
+        next.theme
+            .overrides
+            .insert("abyss".into(), json!({ "accent": "red" }));
         assert!(store.commit(next, 0).is_err());
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn legacy_custom_records_are_cleared_without_resetting_motion() {
+        let value = json!({
+            "schemaVersion": 1,
+            "theme": {
+                "selectedId": "custom-old",
+                "customThemes": [{
+                    "id": "custom-old",
+                    "name": "旧主题",
+                    "basePresetId": "polar",
+                    "overrides": { "accent": "#102030" }
+                }]
+            },
+            "motion": { "preset": "stardust" }
+        });
+        let settings = settings_from_value(value).unwrap();
+        assert_eq!(settings.theme.selected_id, "polar");
+        assert!(settings.theme.overrides.is_empty());
+        assert_eq!(settings.motion.preset, "stardust");
+        let saved = serde_json::to_value(settings).unwrap();
+        assert!(saved["theme"].get("customThemes").is_none());
+    }
+
+    #[test]
+    fn each_preset_resolves_only_its_own_overrides() {
+        let presets: Value = serde_json::from_str(THEME_PRESETS).unwrap();
+        let mut settings = Settings::default();
+        settings.theme.overrides.insert(
+            "abyss".into(),
+            json!({ "accent": "#102030", "orbOpacity": 0.3 }),
+        );
+        settings
+            .theme
+            .overrides
+            .insert("polar".into(), json!({ "accent": "#304050" }));
+        assert_eq!(
+            resolve_theme(&presets, &settings)["palette"]["accent"],
+            "#102030"
+        );
+        settings.theme.selected_id = "polar".into();
+        assert_eq!(
+            resolve_theme(&presets, &settings)["palette"]["accent"],
+            "#304050"
+        );
+        settings.theme.selected_id = "abyss".into();
+        assert_eq!(
+            resolve_theme(&presets, &settings)["palette"]["accent"],
+            "#102030"
+        );
     }
 
     #[test]
@@ -588,6 +636,8 @@ mod tests {
     fn proto_zero_and_invalid_theme_values_are_distinct() {
         assert!(validate_overrides(&json!({ "gradient": ["#000000", "#FFFFFF"] })).is_ok());
         assert!(validate_overrides(&json!({ "gradient": ["#000000"] })).is_err());
-        assert!(validate_overrides(&json!({ "orbOpacity": 0.5 })).is_err());
+        assert!(validate_overrides(&json!({ "orbOpacity": 0.05 })).is_ok());
+        assert!(validate_overrides(&json!({ "cardOpacity": 0.05 })).is_ok());
+        assert!(validate_overrides(&json!({ "orbOpacity": 0.049 })).is_err());
     }
 }

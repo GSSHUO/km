@@ -3,7 +3,7 @@
 
   const reducedQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const contrastQuery = window.matchMedia("(prefers-contrast: more)");
-  const state = { visible: true, ball: false, preset: "lively", theme: null };
+  const state = { visible: true, ball: false, preset: "lively", theme: null, resting: false };
   const stats = { rafCallbacks: 0, draws: 0, particles: 0 };
   let engine = null;
   let restTimer = null;
@@ -86,7 +86,8 @@
   }
 
   function allowed() {
-    return state.visible && state.ball && state.preset === "stardust" && !document.hidden && !reducedQuery.matches && !contrastQuery.matches;
+    const animated = state.preset === "stardust" || state.preset === "lively" && !state.resting;
+    return state.visible && state.ball && animated && !document.hidden && !reducedQuery.matches && !contrastQuery.matches;
   }
 
   function start() {
@@ -99,18 +100,19 @@
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     const palette = state.theme ? state.theme.palette : { particles: ["#60DFC8", "#A78BFA"], text: "#EEF3FF" };
     const colors = [...palette.particles, palette.text];
+    const stardust = state.preset === "stardust";
+    const orbiters = [{ angle: 0, radius: 18, speed: 0.55 }];
+    if (stardust) orbiters.push({ angle: Math.PI, radius: 26, speed: -0.42 });
+    const particleCount = stardust ? 16 : 8;
     engine = {
       context, dpr, last: performance.now(), timer: null, raf: null,
       sprites: colors.map((color) => bake(color, dpr, true)),
       head: bake(palette.text, dpr, false),
       motes: [],
-      orbiters: [
-        { angle: 0, radius: 18, speed: 0.55 },
-        { angle: Math.PI, radius: 26, speed: -0.42 },
-      ],
+      orbiters,
     };
-    engine.motes = Array.from({ length: 16 }, () => spawn(true));
-    stats.particles = 16;
+    engine.motes = Array.from({ length: particleCount }, () => spawn(true));
+    stats.particles = particleCount;
     engine.raf = requestAnimationFrame(tick);
   }
 
@@ -125,11 +127,14 @@
 
   function syncRest() {
     clearTimeout(restTimer);
+    state.resting = false;
     document.body.classList.remove("fx-resting");
     if (state.preset === "lively" && state.ball && state.visible && !document.hidden && !reducedQuery.matches && !contrastQuery.matches) {
-      restTimer = setTimeout(() => document.body.classList.add("fx-resting"), 15000);
-    } else {
-      document.body.classList.add("fx-resting");
+      restTimer = setTimeout(() => {
+        state.resting = true;
+        document.body.classList.add("fx-resting");
+        stop();
+      }, 15000);
     }
   }
 
@@ -144,17 +149,15 @@
 
   function setState(next) {
     const oldDpr = engine && engine.dpr;
+    const oldPreset = state.preset;
+    const restart = engine && (next.theme || oldDpr !== Math.min(window.devicePixelRatio || 1, 2) || next.preset && next.preset !== oldPreset);
+    if (restart) stop();
     Object.assign(state, next);
     sync();
-    if (engine && oldDpr !== Math.min(window.devicePixelRatio || 1, 2)) {
-      stop(); start();
-    } else if (engine && next.theme) {
-      stop(); start();
-    }
   }
 
   function poke() {
-    if (state.preset === "lively") syncRest();
+    if (state.preset === "lively") sync();
   }
 
   document.addEventListener("visibilitychange", sync);

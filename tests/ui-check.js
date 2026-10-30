@@ -5,6 +5,7 @@ const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const html = read("ui/index.html");
 const css = read("ui/style.css");
+const app = read("ui/app.js");
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const themes = JSON.parse(read("ui/themes.json"));
 
@@ -27,4 +28,10 @@ for (const id of ["row-total", "row-5h", "row-7d", "appearancePanel", "diagnosti
 for (const script of ["ui/app.js", "ui/settings.js", "ui/motion.js", "ui/quota-state.js"]) {
   assert.ok(!read(script).includes("localStorage.setItem"), `${script} must not be a second settings store`);
 }
-console.log("UI static contract checks passed: 280×252, 60px orb, 8 themes, local assets, no duplicate particle layer.");
+assert.ok(app.includes('.quota-row").forEach((row) => row.addEventListener("dblclick"'), "quota rows must use double click");
+assert.ok(!app.includes('.quota-row").forEach((row) => row.addEventListener("click"'), "quota rows must not switch on single click");
+assert.ok(app.includes('button:not(.quota-row)'), "quota rows must remain draggable");
+assert.ok(app.includes("suppressDoubleClick"), "dragging must suppress accidental double-click actions");
+assert.ok(!html.includes('id="customList"') && !html.includes('id="saveAsThemeBtn"'), "custom theme creation UI must be removed");
+assert.ok(!app.includes("createCustom("), "appearance edits must not create custom themes");
+console.log("UI static contract checks passed: layout, per-preset editing, double-click gestures, drag conflict guard, local assets.");
