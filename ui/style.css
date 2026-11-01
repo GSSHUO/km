@@ -12,9 +12,9 @@
   --track: #EEF3FF1F;
   --selected: #8EA5FF20;
   --focus: #8EA5FF;
-  --normal: #73D9B0;
-  --warning: #EBC17A;
-  --critical: #F19B9B;
+  --normal: #62D6C5;
+  --warning: #F2C14E;
+  --critical: #F27F8F;
   --unknown: #A8B2C8;
   --card-opacity: .88;
   --orb-opacity: .3;
@@ -78,16 +78,17 @@ body.theme-abyss .card:active { background-color: rgba(22, 22, 32, .2); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .rows { height: 156px; display: grid; grid-template-rows: repeat(3, 48px); row-gap: 6px; }
 .quota-row {
-  height: 48px; min-width: 0; display: grid; grid-template-columns: 32px minmax(0, 1fr) 64px; align-items: center; column-gap: 10px;
-  border-radius: 10px; text-align: left; transition: background 120ms, opacity 120ms;
+  height: 48px; min-width: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; column-gap: 12px;
+  border-radius: 12px; text-align: left; transition: background 120ms, opacity 120ms;
 }
 .quota-row:hover:not(.disabled) { background: var(--selected); }
 .quota-row.disabled { opacity: .5; cursor: default; }
-.ring { width: 32px; height: 32px; position: relative; display: block; }
-.ring svg { width: 32px; height: 32px; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 3.2; }
-.ring .track { stroke: var(--track); }
+.ring { width: 48px; height: 48px; position: relative; display: grid; place-items: center; }
+.ring svg { position: absolute; inset: 0; width: 48px; height: 48px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 5.2; }
+.ring .track { stroke: color-mix(in srgb, var(--text) 13%, transparent); }
 .ring .bar { stroke: var(--normal); stroke-linecap: round; stroke-dasharray: 125.664; stroke-dashoffset: 125.664; transition: stroke-dashoffset 350ms ease-out, stroke 160ms; }
+.ring .ring-pct { position: relative; z-index: 1; width: 36px; color: var(--text); font-size: 9px; line-height: 11px; font-weight: 600; text-align: center; letter-spacing: -.45px; }
 .meta { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
 .label { font-size: 12px; line-height: 15px; font-weight: 500; white-space: nowrap; }
 .current-marker { display: none; width: 4px; height: 4px; margin-left: 5px; border-radius: 50%; background: var(--accent); vertical-align: 2px; }

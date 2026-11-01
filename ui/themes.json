@@ -15,7 +15,7 @@
       "particles": ["#60DFC8", "#A78BFA"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.12, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "emerald",
@@ -33,7 +33,7 @@
       "particles": ["#73E2B5", "#CDE998"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "rainbow",
@@ -51,7 +51,7 @@
       "particles": ["#F490BC", "#86C7F0"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "polar",
@@ -69,7 +69,7 @@
       "particles": ["#8DE8E1", "#879CF4"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "sunset",
@@ -87,7 +87,7 @@
       "particles": ["#FFCB99", "#BD9EEA"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "amber",
@@ -105,7 +105,7 @@
       "particles": ["#E9D3A4", "#BA8751"]
     },
     "material": { "orbGlow": 0.18, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   },
   {
     "id": "sakura",
@@ -123,7 +123,7 @@
       "particles": ["#8F68AA", "#D26E99"]
     },
     "material": { "orbGlow": 0.1, "cardOpacity": 0.94, "orbOpacity": 0.94 },
-    "status": { "normal": "#236B50", "warning": "#825512", "critical": "#AD3F56", "unknown": "#796B80" }
+    "status": { "normal": "#237C6A", "warning": "#966115", "critical": "#BD4967", "unknown": "#796B80" }
   },
   {
     "id": "graphite",
@@ -141,6 +141,6 @@
       "particles": ["#DCE4EC", "#7C91A7"]
     },
     "material": { "orbGlow": 0.08, "cardOpacity": 0.2, "orbOpacity": 0.3 },
-    "status": { "normal": "#73D9B0", "warning": "#EBC17A", "critical": "#F19B9B", "unknown": "#A8B2C8" }
+    "status": { "normal": "#62D6C5", "warning": "#F2C14E", "critical": "#F27F8F", "unknown": "#A8B2C8" }
   }
 ]
