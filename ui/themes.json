@@ -11,7 +11,7 @@
       "accent": "#8EA5FF",
       "buttonText": "#0D101B",
       "glow": "#748DFC",
-      "gradient": ["#60DFC8", "#64BCFF", "#A78BFA"],
+      "gradient": ["#55E6D0", "#52C4F4", "#748FFF", "#B18BF4", "#EC9CD7"],
       "particles": ["#60DFC8", "#A78BFA"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.12, "orbOpacity": 0.3 },
@@ -29,7 +29,7 @@
       "accent": "#73E2B5",
       "buttonText": "#061B19",
       "glow": "#54C7C0",
-      "gradient": ["#73E2B5", "#54C7C0", "#CDE998"],
+      "gradient": ["#63E0B4", "#3FC8B5", "#63CDE0", "#A9E292", "#DFEAA0"],
       "particles": ["#73E2B5", "#CDE998"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
@@ -65,7 +65,7 @@
       "accent": "#8BD6FF",
       "buttonText": "#081827",
       "glow": "#69BFFF",
-      "gradient": ["#8DE8E1", "#69BFFF", "#879CF4"],
+      "gradient": ["#8DE8E1", "#63D4F2", "#69BFFF", "#879CF4", "#B2A7F2"],
       "particles": ["#8DE8E1", "#879CF4"]
     },
     "material": { "orbGlow": 0.24, "cardOpacity": 0.2, "orbOpacity": 0.3 },
@@ -101,7 +101,7 @@
       "accent": "#E5C68A",
       "buttonText": "#201B14",
       "glow": "#D8B66E",
-      "gradient": ["#E9D3A4", "#D8B66E", "#BA8751"],
+      "gradient": ["#F3D9A5", "#EBC176", "#DDA85E", "#CE8E62", "#B9795B"],
       "particles": ["#E9D3A4", "#BA8751"]
     },
     "material": { "orbGlow": 0.18, "cardOpacity": 0.2, "orbOpacity": 0.3 },

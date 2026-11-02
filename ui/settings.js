@@ -71,6 +71,11 @@
       document.body.classList.add(`theme-${theme.id}`, `appearance-${theme.appearance}`);
       const gradient = document.getElementById("orbGradient");
       if (gradient) {
+        const reversed = ["abyss", "emerald", "polar", "amber"].includes(theme.id);
+        gradient.setAttribute("x1", "0");
+        gradient.setAttribute("y1", reversed ? "1" : "0");
+        gradient.setAttribute("x2", "1");
+        gradient.setAttribute("y2", reversed ? "0" : "1");
         gradient.replaceChildren();
         const colors = theme.palette.gradient;
         colors.forEach((color, index) => {
