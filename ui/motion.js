@@ -8,7 +8,7 @@
   let engine = null;
   let restTimer = null;
 
-  function bake(color, dpr, halo) {
+  function bake(color, dpr, halo, vivid) {
     const unit = 10;
     const box = 48;
     const canvas = document.createElement("canvas");
@@ -17,13 +17,18 @@
     const context = canvas.getContext("2d");
     context.scale(dpr, dpr);
     if (halo) {
-      context.globalAlpha = 0.26;
+      context.globalAlpha = vivid ? 0.42 : 0.26;
       context.fillStyle = color;
       context.beginPath(); context.arc(box / 2, box / 2, unit * 2.1, 0, Math.PI * 2); context.fill();
     }
     context.globalAlpha = 1;
     context.fillStyle = color;
     context.beginPath(); context.arc(box / 2, box / 2, unit, 0, Math.PI * 2); context.fill();
+    if (vivid) {
+      context.globalAlpha = 0.72;
+      context.fillStyle = "#FFFFFF";
+      context.beginPath(); context.arc(box / 2, box / 2, unit * 0.32, 0, Math.PI * 2); context.fill();
+    }
     return { canvas, box, unit };
   }
 
@@ -53,7 +58,8 @@
       const sprite = engine.sprites[mote.color];
       const x = mote.x + Math.sin(time * 0.8 + mote.phase) * mote.sway;
       const size = sprite.box * mote.size / sprite.unit;
-      context.globalAlpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(time * 1.8 + mote.phase));
+      const pulse = 0.5 + 0.5 * Math.sin(time * 1.8 + mote.phase);
+      context.globalAlpha = engine.stardust ? 0.48 + 0.52 * pulse : 0.25 + 0.55 * pulse;
       context.drawImage(sprite.canvas, x - size / 2, mote.y - size / 2, size, size);
     }
     engine.orbiters.forEach((orbiter, index) => {
@@ -98,15 +104,15 @@
     canvas.height = Math.round(60 * dpr);
     const context = canvas.getContext("2d");
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const palette = state.theme ? state.theme.palette : { particles: ["#60DFC8", "#A78BFA"], text: "#EEF3FF" };
-    const colors = [...palette.particles, palette.text];
+    const palette = state.theme ? state.theme.palette : { particles: ["#60DFC8", "#A78BFA"], gradient: ["#55E6D0", "#52C4F4", "#748FFF", "#B18BF4", "#EC9CD7"], text: "#EEF3FF" };
     const stardust = state.preset === "stardust";
+    const colors = stardust ? [...new Set([...palette.particles, ...(palette.gradient || [])])] : [...palette.particles, palette.text];
     const orbiters = [{ angle: 0, radius: 18, speed: 0.55 }];
     if (stardust) orbiters.push({ angle: Math.PI, radius: 26, speed: -0.42 });
     const particleCount = stardust ? 16 : 8;
     engine = {
-      context, dpr, last: performance.now(), timer: null, raf: null,
-      sprites: colors.map((color) => bake(color, dpr, true)),
+      context, dpr, last: performance.now(), timer: null, raf: null, stardust,
+      sprites: colors.map((color) => bake(color, dpr, true, stardust)),
       head: bake(palette.text, dpr, false),
       motes: [],
       orbiters,

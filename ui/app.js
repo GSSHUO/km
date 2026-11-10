@@ -487,7 +487,7 @@ function renderThemeFields() {
       add.addEventListener("click", () => { editor.setOverride("gradient", [...editor.resolved().palette.gradient, theme.palette.accent]); renderAppearance(); }); section.appendChild(add);
     }
     if (group.particles) {
-      const title = document.createElement("div"); title.className = "section-title"; title.textContent = "星尘粒子（2 色 + 主文字色）"; section.appendChild(title);
+      const title = document.createElement("div"); title.className = "section-title"; title.textContent = "粒子配色（灵动含文字色，星尘叠加主题渐变）"; section.appendChild(title);
       theme.palette.particles.forEach((value, index) => section.appendChild(colorField("particles", `粒子色 ${index + 1}`, value)));
       const rows = [...section.querySelectorAll(".color-field")].slice(-2);
       rows.forEach((row, index) => {
