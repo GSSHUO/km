@@ -85,13 +85,15 @@ function render(payload) {
   const fiveOff = five.enabled === false;
   const sevenOff = seven.enabled === false;
 
-  setRing("total", payload.total && payload.total.usedRatio);
-  // 球面进度按当前口径：总量（默认）或 5 小时窗口（未启用则置空）
-  setRing("ball", orbMetric === "5h"
-    ? (fiveOff ? null : five.usedRatio)
-    : payload.total && payload.total.usedRatio);
-  setRing("5h", fiveOff ? null : five.usedRatio);
-  setRing("7d", sevenOff ? null : seven.usedRatio);
+  const ratios = {
+    total: payload.total && payload.total.usedRatio,
+    "5h": fiveOff ? null : five.usedRatio,
+    "7d": sevenOff ? null : seven.usedRatio,
+  };
+  setRing("total", ratios.total);
+  setRing("ball", ratios[orbMetric]);
+  setRing("5h", ratios["5h"]);
+  setRing("7d", ratios["7d"]);
   setRowDisabled("5h", fiveOff);
   setRowDisabled("7d", sevenOff);
 
@@ -445,11 +447,23 @@ document.getElementById("confirmOkBtn").addEventListener("click", async () => {
 });
 window.__kqbSession = refreshSessionUI;
 
-// Drag the window from anywhere on the card except interactive controls.
+// Wait for pointer movement so a double-click can still reach a quota row.
+let cardDownAt = null;
+let cardDragged = false;
 document.querySelector(".card").addEventListener("mousedown", (e) => {
   if (e.button !== 0 || e.target.closest("button, input, canvas, .login-panel, .profile-panel, .confirm-mask")) return;
-  window.__TAURI__.core.invoke("start_drag");
+  if (e.detail <= 1) cardDragged = false;
+  cardDownAt = { x: e.clientX, y: e.clientY };
 });
+window.addEventListener("mousemove", (e) => {
+  if (!cardDownAt || !(e.buttons & 1) || Math.hypot(e.clientX - cardDownAt.x, e.clientY - cardDownAt.y) <= 6) return;
+  cardDownAt = null;
+  cardDragged = true;
+  e.preventDefault();
+  invoke("start_drag").catch(() => {});
+});
+window.addEventListener("mouseup", () => { cardDownAt = null; });
+window.addEventListener("blur", () => { cardDownAt = null; });
 
 // --- ball mode (docked to the screen edge) ---
 
@@ -470,9 +484,9 @@ window.__kqbBallMode = (on) => {
 };
 window.__TAURI__.event.listen("ball-mode", (e) => window.__kqbBallMode(!!e.payload));
 
-// --- orb themes (悬浮球主题：深渊紫黑 / 翡翠庭园 / 独角兽彩虹) ---
+// --- orb themes (悬浮球主题) ---
 
-const ORB_THEMES = ["abyss", "emerald", "rainbow"];
+const ORB_THEMES = ["abyss", "emerald", "rainbow", "graphite", "sakura"];
 
 // 应用主题：切换 body 上的 theme-* class 并持久化到 localStorage。
 // 托盘菜单通过 __kqbSetTheme 直接调用（eval 通道，事件可能丢）。
@@ -494,22 +508,35 @@ let savedOrbTheme = null;
 try { savedOrbTheme = localStorage.getItem("kqb-orb-theme"); } catch (e) { /* ignore */ }
 const activeOrbTheme = applyOrbTheme(savedOrbTheme);
 
-// --- orb metric (悬浮球显示口径：总量 / 5 小时窗口) ---
+// --- orb metric (悬浮球显示口径) ---
 
-const ORB_METRICS = ["total", "5h"];
+const ORB_METRIC_TITLES = new Map([
+  ["total", "月度总量用量"],
+  ["5h", "5 小时窗口用量"],
+  ["7d", "7 天窗口用量"],
+]);
+let orbMetric;
 let lastPayload = null; // 最近一次 render 的原始数据，切口径时立即重绘球面
 
 function applyOrbMetric(metric) {
-  if (!ORB_METRICS.includes(metric)) metric = "total";
+  if (!ORB_METRIC_TITLES.has(metric)) metric = "total";
   orbMetric = metric;
   try { localStorage.setItem("kqb-orb-metric", metric); } catch (e) { /* ignore */ }
-  document.getElementById("ball").title =
-    (metric === "5h" ? "5 小时窗口用量" : "月度总量用量") + " — 点击展开";
+  document.getElementById("ball").title = ORB_METRIC_TITLES.get(metric) + " — 点击展开";
   if (lastPayload) render(lastPayload);
 }
-let orbMetric = "total";
-try { orbMetric = localStorage.getItem("kqb-orb-metric") || "total"; } catch (e) { /* ignore */ }
+let savedOrbMetric = null;
+try { savedOrbMetric = localStorage.getItem("kqb-orb-metric"); } catch (e) { /* ignore */ }
+applyOrbMetric(savedOrbMetric);
 window.__kqbSetMetric = applyOrbMetric;
+
+document.querySelectorAll("[data-orb-metric]").forEach((row) => {
+  row.addEventListener("dblclick", () => {
+    if (cardDragged || row.classList.contains("disabled") || lastPayload?.ok !== true) return;
+    applyOrbMetric(row.dataset.orbMetric);
+    invoke("sync_menus", { metric: orbMetric }).catch(() => {});
+  });
+});
 
 // --- orb showcase mode（观赏模式：可选增强渲染层，默认关闭） ---
 // 关闭时 body 上无 showcase-mode class，新增层全部 display:none，
@@ -528,6 +555,8 @@ const FX_PALETTE = {
   abyss:   { motes: ["#86efac", "#c4b5fd", "#ffffff", "#a78bfa", "#4ade80"], orbit: "#a7f3d0" },
   emerald: { motes: ["#d9f99d", "#86efac", "#ffffff", "#7dd3fc", "#fde68a"], orbit: "#fde68a" },
   rainbow: { motes: ["#fda4af", "#fde68a", "#86efac", "#7dd3fc", "#c4b5fd"], orbit: "#fda4af" },
+  graphite: { motes: ["#DCE4EC", "#7C91A7", "#EEF1F4", "#AAB8C8", "#CBD5E1"], orbit: "#DCE4EC" },
+  sakura: { motes: ["#8F68AA", "#D26E99", "#453747", "#B96D53", "#9A5796"], orbit: "#D26E99" },
 };
 const FX_MOTES = 8; // 低密度档（用户定稿）
 const FX_REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -769,6 +798,7 @@ window.addEventListener("error", (e) => {
 
 // 双击标题「Kimi 额度」：展开态下自动吸附到最近的屏幕边缘缩成球。
 document.querySelector(".title").addEventListener("dblclick", () => {
+  if (cardDragged) return;
   invoke("dock_ball").catch(() => {});
 });
 

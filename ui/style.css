@@ -184,12 +184,12 @@ html, body {
 .login-submit:disabled { opacity: 0.45; cursor: default; }
 .login-error { font-size: 10.5px; color: #fca5a5; min-height: 14px; text-align: center; line-height: 1.4; }
 
-/* ---------- Edge Dock Orb: 边缘吸附浮珠（主题制 · 三套可切换） ---------- */
+/* ---------- Edge Dock Orb: 边缘吸附浮珠 ---------- */
 /* 设计要点：无圈线描边——边缘靠柔和的内外光衰减定义；进度环统一为主题
    渐变（不再按用量变色，卡片三环仍按用量着色）；粒子与星点仅为装饰层，
    全部走 transform / opacity 合成层动画，不改任何交互与信息。
    主题由 body 上的 theme-* class 切换（app.js 负责加 class 与持久化）：
-   默认深渊紫黑（基础样式即 abyss 配色）、翡翠庭园、独角兽彩虹。
+   基础样式为默认的深渊紫黑。
    可调参数：球体尺寸 / 光晕强度 / 动画时长。
    注意：--orb-size 是视觉层尺寸，窗口尺寸由 Rust 侧 BALL_SIZE 决定，两者需一致。 */
 :root {
@@ -212,7 +212,7 @@ body.ball-mode .ball {
   border-radius: 50%;
   color: rgba(255, 255, 255, 0.95);
   /* 磨砂芯 Frost Core（默认·深渊紫黑）：近纯黑底叠深紫氛围渐变
-     + 高斯模糊透出后景（三套主题共用 blur/saturate） */
+     + 高斯模糊透出后景（各主题共用 blur/saturate） */
   background: linear-gradient(140deg,
     rgba(88, 28, 135, 0.34), rgba(9, 7, 16, 0.66) 48%,
     rgba(34, 20, 60, 0.5)), rgba(4, 3, 9, 0.72);
@@ -236,7 +236,7 @@ body.ball-mode .ball {
   from { opacity: 0; transform: scale(0.5); }
   to { opacity: 1; transform: scale(1); }
 }
-/* 顶部柔和镜面高光，让球体圆鼓鼓（无硬边弧线，三套主题共用） */
+/* 顶部柔和镜面高光，让球体圆鼓鼓（无硬边弧线，各主题共用） */
 .ball::before {
   content: ""; position: absolute; top: 6%; left: 50%;
   width: 46%; height: 18%;
@@ -498,6 +498,75 @@ body.theme-rainbow .orb-body .pct {
     0 0 12px rgba(56, 189, 248, 0.35);
 }
 
+/* ============ 石墨银 / 樱雾白瓷 ============ */
+body.theme-graphite {
+  --orb-base: 21, 25, 30;
+  --orb-base-alpha: 0.3;
+  --orb-ink: 238, 241, 244;
+  --orb-light: 170, 184, 200;
+  --orb-light-alpha: 0.08;
+  --orb-accent: 203, 213, 225;
+  --orb-particle-a: 220, 228, 236;
+  --orb-particle-b: 124, 145, 167;
+}
+body.theme-sakura {
+  --orb-base: 245, 240, 243;
+  --orb-base-alpha: 0.94;
+  --orb-ink: 69, 55, 71;
+  --orb-light: 210, 110, 153;
+  --orb-light-alpha: 0.1;
+  --orb-accent: 154, 87, 150;
+  --orb-particle-a: 143, 104, 170;
+  --orb-particle-b: 210, 110, 153;
+}
+body.theme-graphite .orb-body .bar { stroke: url(#grad-graphite); }
+body.theme-sakura .orb-body .bar { stroke: url(#grad-sakura); }
+body:is(.theme-graphite, .theme-sakura) .ball {
+  background: linear-gradient(140deg,
+    rgba(var(--orb-accent), 0.12), rgba(var(--orb-base), 0.56) 48%,
+    rgba(var(--orb-light), 0.16)), rgba(var(--orb-base), var(--orb-base-alpha));
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.32),
+    inset 0 -7px 12px rgba(var(--orb-light), var(--orb-light-alpha)),
+    inset 5px 0 12px rgba(var(--orb-particle-a), 0.12),
+    inset -5px 0 12px rgba(var(--orb-particle-b), 0.12),
+    inset 0 0 0 1px rgba(var(--orb-accent), 0.12);
+}
+body:is(.theme-graphite, .theme-sakura) .ball::after {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(var(--orb-light), calc(2 * var(--orb-light-alpha))),
+    rgba(var(--orb-accent), 0.08) 58%, rgba(var(--orb-accent), 0) 76%);
+}
+body:is(.theme-graphite, .theme-sakura) .orb-swirl {
+  background: conic-gradient(from 0deg,
+    rgba(var(--orb-particle-a), 0), rgba(var(--orb-particle-a), 0.2) 70deg,
+    rgba(var(--orb-light), 0.25) 165deg, rgba(var(--orb-particle-b), 0.18) 255deg,
+    rgba(var(--orb-particle-a), 0) 360deg);
+}
+body:is(.theme-graphite, .theme-sakura) .orb-particles i:nth-child(odd) {
+  color: rgb(var(--orb-particle-a));
+}
+body:is(.theme-graphite, .theme-sakura) .orb-particles i:nth-child(even) {
+  color: rgb(var(--orb-particle-b));
+}
+body:is(.theme-graphite, .theme-sakura) .orb-orbit i {
+  background: radial-gradient(circle, #ffffff, rgba(var(--orb-particle-b), 0.9) 60%, transparent 75%);
+  box-shadow: 0 0 6px 1px rgba(var(--orb-light), 0.85);
+}
+body:is(.theme-graphite, .theme-sakura) .orb-burst {
+  background: radial-gradient(circle,
+    rgba(255, 255, 255, 0.85), rgba(var(--orb-light), 0.45) 45%,
+    rgba(var(--orb-accent), 0) 70%);
+}
+body:is(.theme-graphite, .theme-sakura) .orb-body .track { stroke: rgba(var(--orb-ink), 0.12); }
+body:is(.theme-graphite, .theme-sakura) .orb-body .bar {
+  filter: drop-shadow(0 0 3px rgba(var(--orb-light), 0.85));
+}
+body:is(.theme-graphite, .theme-sakura) .orb-body .pct {
+  color: rgb(var(--orb-ink));
+  text-shadow: 0 1px 6px rgba(var(--orb-base), 0.8), 0 0 10px rgba(var(--orb-light), 0.25);
+}
+
 /* ============ 观赏模式（可选增强渲染层 · 默认关闭） ============ */
 /* 设计原则：本段所有规则都挂在 body.showcase-mode 之下——开关关闭时
    零生效，悬浮球与旧版逐像素一致。开启后新增（参数即设计案例 v2.1
@@ -509,6 +578,10 @@ body.theme-rainbow .orb-body .pct {
 :root { --bar-glow: rgba(139, 92, 246, 0.85); --bar-glow-soft: rgba(139, 92, 246, 0.35); }
 body.theme-emerald { --bar-glow: rgba(45, 212, 191, 0.8); --bar-glow-soft: rgba(45, 212, 191, 0.32); }
 body.theme-rainbow { --bar-glow: rgba(167, 139, 250, 0.8); --bar-glow-soft: rgba(167, 139, 250, 0.32); }
+body:is(.theme-graphite, .theme-sakura) {
+  --bar-glow: rgba(var(--orb-light), 0.8);
+  --bar-glow-soft: rgba(var(--orb-light), 0.32);
+}
 
 /* 进度弧末端小亮点：默认隐藏，观赏模式显示（位置由 app.js 按进度驱动） */
 .orb-body .tip { display: none; }
@@ -536,6 +609,10 @@ body.showcase-mode .orb-fx {
 body.showcase-mode { --orbit-dot: rgba(134, 239, 172, 0.9); --orbit-glow: rgba(74, 222, 128, 0.7); }
 body.showcase-mode.theme-emerald { --orbit-dot: rgba(253, 230, 138, 0.9); --orbit-glow: rgba(252, 211, 77, 0.7); }
 body.showcase-mode.theme-rainbow { --orbit-dot: rgba(253, 224, 71, 0.9); --orbit-glow: rgba(244, 114, 182, 0.7); }
+body.showcase-mode:is(.theme-graphite, .theme-sakura) {
+  --orbit-dot: rgba(var(--orb-particle-b), 0.9);
+  --orbit-glow: rgba(var(--orb-light), 0.7);
+}
 body.showcase-mode .orb-outer-orbit {
   display: block;
   position: absolute; inset: 2.8%; border-radius: 50%;
@@ -562,6 +639,10 @@ body.showcase-mode .orb-outer-orbit i {
   }
   .orb-swirl, .orb-particles, .orb-orbit, .orb-burst,
   body.ball-mode .ball::after { display: none; }
+  body.theme-sakura .orb-body .pct {
+    color: #fff;
+    text-shadow: 0 1px 6px rgba(16, 16, 26, 0.88);
+  }
 }
 /* 减弱动效偏好：停止所有循环动画，保留静态玻璃质感（观赏模式画布由 JS 停帧） */
 @media (prefers-reduced-motion: reduce) {

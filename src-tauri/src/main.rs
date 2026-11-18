@@ -12,7 +12,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
 };
 
-const CARD_WIDTH: i32 = 328;
+const CARD_WIDTH: i32 = 304;
 const CARD_HEIGHT: i32 = 224;
 /// Ball-mode diameter (logical px) and edge-proximity thresholds (physical
 /// px). ENTER must stay well under EXIT so the snap itself never re-triggers.
@@ -49,16 +49,22 @@ fn save_position(x: i32, y: i32) {
 // restores the last CARD position.
 
 static BALL_MODE: Mutex<bool> = Mutex::new(false);
-/// Tray menu ids of the three orb themes (radio-style checkmarks).
-const THEME_MENU_IDS: [&str; 3] = ["theme-abyss", "theme-emerald", "theme-rainbow"];
-/// Tray menu ids of the two orb metrics (radio-style checkmarks).
-const METRIC_MENU_IDS: [&str; 2] = ["metric-total", "metric-5h"];
+/// Tray menu ids of the orb themes (radio-style checkmarks).
+const THEME_MENU_IDS: [&str; 5] = [
+    "theme-abyss",
+    "theme-emerald",
+    "theme-rainbow",
+    "theme-graphite",
+    "theme-sakura",
+];
+/// Tray menu ids of the orb metrics (radio-style checkmarks).
+const METRIC_MENU_IDS: [&str; 3] = ["metric-total", "metric-5h", "metric-7d"];
 /// Handles to the tray check items. The tray menu lives on the tray icon, so
 /// `app.menu()` (the app-level menu, never set here) cannot reach them —
 /// exclusivity sync must go through these handles directly.
 struct TrayChecks {
-    themes: [tauri::menu::CheckMenuItem<tauri::Wry>; 3],
-    metrics: [tauri::menu::CheckMenuItem<tauri::Wry>; 2],
+    themes: [tauri::menu::CheckMenuItem<tauri::Wry>; THEME_MENU_IDS.len()],
+    metrics: [tauri::menu::CheckMenuItem<tauri::Wry>; METRIC_MENU_IDS.len()],
     showcase: tauri::menu::CheckMenuItem<tauri::Wry>,
 }
 static TRAY_CHECKS: std::sync::OnceLock<TrayChecks> = std::sync::OnceLock::new();
@@ -278,16 +284,19 @@ fn dock_ball(window: tauri::WebviewWindow) {
 }
 
 /// Keep the tray checkmarks (orb theme + metric + showcase) in sync with the
-/// frontend's persisted choices (e.g. after a relaunch restoring
-/// non-default selections).
+/// frontend's choices. A quota row only updates the metric group.
 #[tauri::command]
-fn sync_menus(theme: String, metric: String, showcase: bool) {
+fn sync_menus(theme: Option<String>, metric: String, showcase: Option<bool>) {
     let Some(checks) = TRAY_CHECKS.get() else { return };
-    let theme_target = format!("theme-{theme}");
-    sync_check_group(&checks.themes, &THEME_MENU_IDS, &theme_target);
+    if let Some(theme) = theme {
+        let theme_target = format!("theme-{theme}");
+        sync_check_group(&checks.themes, &THEME_MENU_IDS, &theme_target);
+    }
     let metric_target = format!("metric-{metric}");
     sync_check_group(&checks.metrics, &METRIC_MENU_IDS, &metric_target);
-    let _ = checks.showcase.set_checked(showcase);
+    if let Some(showcase) = showcase {
+        let _ = checks.showcase.set_checked(showcase);
+    }
 }
 
 // ---------- quota fetch ----------
@@ -1047,17 +1056,29 @@ fn main() {
                 .build(app)?;
             let theme_rainbow = CheckMenuItemBuilder::with_id("theme-rainbow", "独角兽彩虹")
                 .build(app)?;
+            let theme_graphite = CheckMenuItemBuilder::with_id("theme-graphite", "石墨银")
+                .build(app)?;
+            let theme_sakura = CheckMenuItemBuilder::with_id("theme-sakura", "樱雾白瓷")
+                .build(app)?;
             let theme_menu = SubmenuBuilder::with_id(app, "theme", "悬浮球主题")
-                .items(&[&theme_abyss, &theme_emerald, &theme_rainbow])
+                .items(&[
+                    &theme_abyss,
+                    &theme_emerald,
+                    &theme_rainbow,
+                    &theme_graphite,
+                    &theme_sakura,
+                ])
                 .build()?;
-            // 悬浮球显示口径：总量 / 5 小时窗口（单选勾选，eval 直推前端）。
+            // 悬浮球显示口径：单选勾选，切换后 eval 直推前端。
             let metric_total = CheckMenuItemBuilder::with_id("metric-total", "总量 · 月度额度")
                 .checked(true)
                 .build(app)?;
             let metric_5h = CheckMenuItemBuilder::with_id("metric-5h", "5 小时窗口")
                 .build(app)?;
+            let metric_7d = CheckMenuItemBuilder::with_id("metric-7d", "7 天窗口")
+                .build(app)?;
             let metric_menu = SubmenuBuilder::with_id(app, "metric", "悬浮球显示")
-                .items(&[&metric_total, &metric_5h])
+                .items(&[&metric_total, &metric_5h, &metric_7d])
                 .build()?;
             // 观赏模式：可选增强渲染层（环内星尘 + 最外圈游星 + 弧末亮点），
             // 默认关闭 = 与旧版渲染一致；勾选状态由前端 sync_menus 回写。
@@ -1065,8 +1086,8 @@ fn main() {
                 CheckMenuItemBuilder::with_id("showcase", "观赏模式（悬浮球增强渲染）")
                     .build(app)?;
             let _ = TRAY_CHECKS.set(TrayChecks {
-                themes: [theme_abyss.clone(), theme_emerald.clone(), theme_rainbow.clone()],
-                metrics: [metric_total.clone(), metric_5h.clone()],
+                themes: [theme_abyss, theme_emerald, theme_rainbow, theme_graphite, theme_sakura],
+                metrics: [metric_total, metric_5h, metric_7d],
                 showcase: showcase_item.clone(),
             });
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
@@ -1087,7 +1108,7 @@ fn main() {
                             let _ = w.eval("window.__kqbPoll && window.__kqbPoll()");
                         }
                     }
-                    "theme-abyss" | "theme-emerald" | "theme-rainbow" => {
+                    id if THEME_MENU_IDS.contains(&id) => {
                         if let Some(checks) = TRAY_CHECKS.get() {
                             sync_check_group(&checks.themes, &THEME_MENU_IDS, event.id().as_ref());
                         }
@@ -1098,7 +1119,7 @@ fn main() {
                             ));
                         }
                     }
-                    "metric-total" | "metric-5h" => {
+                    id if METRIC_MENU_IDS.contains(&id) => {
                         if let Some(checks) = TRAY_CHECKS.get() {
                             sync_check_group(&checks.metrics, &METRIC_MENU_IDS, event.id().as_ref());
                         }
